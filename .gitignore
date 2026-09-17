@@ -1,0 +1,28 @@
+# Build output and releases
+/build/
+/release/
+*.obj
+*.dll
+*.exe
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.map
+
+# Heavy external tools (Ghidra, zip archives)
+/tools/vendor/*.zip
+/tools/vendor/ghidra*
+!/tools/vendor/minhook-1.3.4/
+
+# Local reverse engineering, memory dumps, crash logs and analysis scratchpad
+/analysis/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# IDE / Editor
+.vs/
+.vscode/
+*.user

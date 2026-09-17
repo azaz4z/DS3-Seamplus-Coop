@@ -1,0 +1,56 @@
+{
+	"GENERIC_INVALID": "No ocurrio nada interesante",
+	
+	"GOODSNAME_HOSTINGITEM": "Colgante cristalino",	
+	"GOODSNAME_JOININGITEM": "Emblema de piedra",	
+	"GOODSNAME_BREAKINITEM": "Estatuilla blasfema",	
+	"GOODSNAME_LEAVINGITEM": "Colgante oxidado",	
+	"GOODSNAME_GAMERULECHANGEITEM": "Tomo siniestro",	
+	"GOODSNAME_DRIEDFINGERITEM": "Orbe Provocador",	
+	
+	"GOODSINFO_HOSTINGITEM": "Crea una sesión cooperativa",	
+	"GOODSINFO_JOININGITEM": "Únete a una sesión cooperativa",	
+	"GOODSINFO_BREAKINITEM": "Invade una sesión cooperativa",	
+	"GOODSINFO_LEAVINGITEM": "Disuelve una sesión cooperativa",	
+	"GOODSINFO_GAMERULECHANGEITEM": "Cambia las normas del mundo",	
+	"GOODSINFO_DRIEDFINGERITEM": "Provoca a los invasores para que se unan",	
+		
+	"GOODSDESC_HOSTINGITEM": "- Descripción del Objeto de Alojamiento -",	
+	"GOODSDESC_JOININGITEM": "- Descripción del objeto de Unión -",	
+	"GOODSDESC_BREAKINITEM": "- Descripción del objeto de Invasión -",	
+	"GOODSDESC_LEAVINGITEM": "- Descripción del objeto de Salida -",	
+	"GOODSDESC_GAMERULECHANGEITEM": "- Descripción del objeto de Normas -",	
+	"GOODSDESC_DRIEDFINGERITEM": "-",	
+	
+	"MODMSG_FVFPLAYER": "Errante",	
+	"MODMSG_FVBPLAYER": "Rebelde",	
+	"MODMSG_BVFPLAYER": "Objetivo",	
+	"MODMSG_BVBPLAYER": "Rebelde",
+	
+	"MODMSG_WELCOMEFRIENDLY": "El Errante {} se ha unido",
+	"MODMSG_WELCOMEBREAKIN": "El Rebelde {} te ha invadido",
+		
+	"MODMSG_DEADFRIENDLY": "El Errante {} ha muerto",
+	"MODMSG_DEADBREAKIN": "El Rebelde {} ha muerto",
+	
+	"MODMSG_INVASIONWIN": "Objetivo completado\nRegresando a tu mundo...",	
+	
+	"MODMSG_JOININGINPROGRESS": "Uniendose a otro mundo como Errante",	
+	"MODMSG_INVADINGINPROGRESS": "Invadiendo otro mundo como Rebelde",
+	"MODMSG_JOINBLOCKED": "Conexión fallida: Has sido bloqueado por el anfitrión de la sesión",
+	"MODMSG_JOINFAILED": "Conexión fallida: No hay suficientes espacios para jugadores libres",
+	"MODMSG_BLOCKEDJOIN": "Conexión fallida: Has bloqueado al anfitrión de la sesión",
+	"MODMSG_FAILEDJOIN": "Conexión fallida: Sin anfitrión",
+	"MODMSG_NOLOBBYFRIEND": "No se encontraron sesiones",
+	"MODMSG_NOLOBBYINVADE": "No se ha encontrado una sesión para invadir",
+	"MODMSG_INVASIONINTRODUCTION": "Invadiendo otro mundo\n Derrota a {} Errantes",
+	
+	"MODMSG_NOAOALICENCE": "El anfitrión se ha trasladado a un DLC que no poseés\nRegresando a tu mundo...",
+	"MODMSG_NORCLICENCE": "El anfitrión se ha trasladado a un DLC que no poseés\nRegresando a tu mundo...",
+	
+	"MODMSG_TOOGGLEFRIENDFIREON": "Fuego amigo activado",	
+	"MODMSG_TOOGGLEFRIENDFIGHTON": "Fuego amigo activado (PvP)",	
+	"MODMSG_TOOGGLEFRIENDFIGHTOFF": "Fuego amigo desactivado",
+	
+	"CREDITS": "Sergioba99"
+}
