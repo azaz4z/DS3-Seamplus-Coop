@@ -95,5 +95,5 @@ python tools/build_binaries.py --without-ally-outline --with-ally-markers --with
 
 ## License & Credits
 
-- Based on and extending the original [Dark Souls 3 Seamless Co-op Release](https://github.com/yuiamoroll/DarkSouls3SeamlessCoopRelease) by **LukeYui / yuiamoroll**.
+- Based on [Dark Souls 3 Seamless Co-op Release](https://github.com/yuiamoroll/DarkSouls3SeamlessCoopRelease) by **LukeYui / yuiamoroll**.
 - Uses [MinHook](https://github.com/TsudaKageyu/minhook) for API redirection and runtime hooking.
