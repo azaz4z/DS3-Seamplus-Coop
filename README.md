@@ -11,6 +11,7 @@ A modular companion modification and enhancement suite for **Dark Souls III Seam
 | **Custom Menu Integration** | UI / Core | **Working / Stable** | Native Scaleform button hook (RVA `0xEE1150`) with exact game button hitbox. Also accessible in-game via `F7`. TrueType typography with INI synchronization. |
 | **Companion Spawner (Ash Stone)** | Gameplay / AI | **Working** | Modular companion summon system (Ash Stone); functional companion NPC summoning. |
 | **Guest Bonfires Restoration** | World Fix | **Working / Patched** | Fixes bonfire checkpoint write-back (`+0xacc`) for guest players so resting and respawns work properly. |
+| **FPS Unlocker (Uncap 60 FPS)** | Performance / Engine | **Working / Stable** | Uncaps Dark Souls III native 60 FPS limit with customizable target framerate (144, 165, 240+ FPS), VSync toggle, and real-time F7 menu integration. |
 | **Combat Stat Counters** | Overlay / Stats | **Working / Stable** | Optional in-game HUD tracking session kills, deaths, and backstabs. |
 | **Ally Diamond Markers** | Render / UI | **Working / In Progress** | Real-time 3D overhead position markers for co-op allies; undergoing polish and refinement. |
 | **Ally Outlines & Silhouettes** | Render (D3D11) | **Working / In Progress** | Direct3D 11 shader pass for occluded silhouettes behind walls; functional, undergoing optimization. |
@@ -93,7 +94,10 @@ python tools/build_binaries.py --without-ally-outline --with-ally-markers --with
 
 ---
 
-## License & Credits
+## License, Credits & Disclaimers
 
-- Based on [Dark Souls 3 Seamless Co-op Release](https://github.com/yuiamoroll/DarkSouls3SeamlessCoopRelease) by **LukeYui / yuiamoroll**.
-- Uses [MinHook](https://github.com/TsudaKageyu/minhook) for API redirection and runtime hooking.
+- **Original Concept & Attribution:** All credit and appreciation go to **LukeYui / yuiamoroll** for pioneering the [Dark Souls 3 Seamless Co-op](https://github.com/yuiamoroll/DarkSouls3SeamlessCoopRelease) concept. This project is an independent, unofficial community effort and is in no way affiliated with, endorsed by, or supported by LukeYui.
+- **Clean-Room Reimplementation:** The original mod's source code was never publicly released. DS3 Seamplus Co-op is an independent clean-room reimplementation developed from the ground up using reverse engineering, custom memory hooks, and community research. No proprietary binaries or closed-source code from the original mod are decompiled, copied, or redistributed.
+- **AI-Assisted Development:** Modern AI developer tooling was utilized throughout development to assist with reverse-engineering analysis, debugging, refactoring, and documentation. The project is 100% open-source, fully transparent, and welcomes community audits, testing, and pull requests.
+- **Third-Party Libraries:** Uses [MinHook](https://github.com/TsudaKageyu/minhook) for API redirection and runtime hooking.
+
