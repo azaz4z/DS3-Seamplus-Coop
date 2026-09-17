@@ -224,6 +224,7 @@ void TitleMenu::EnsureSteamHook() noexcept {
         }
     }
 
+    EnsureInputHooks(nullptr);
     hooked = true;
 }
 
@@ -233,6 +234,13 @@ static HWND s_hookedHwnd = nullptr;
 static LRESULT CALLBACK Hooked_WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     if (TitleMenu::Instance().IsModalOpen()) {
         switch (uMsg) {
+        case WM_INPUT:
+            // Consume raw input so Dark Souls III does not process mouse clicks, movement, or keyboard input!
+            // DefWindowProcW performs system cleanup of the raw input handle.
+            DefWindowProcW(hWnd, uMsg, wParam, lParam);
+            return 0;
+
+        case WM_MOUSEMOVE:
         case WM_LBUTTONDOWN:
         case WM_LBUTTONUP:
         case WM_LBUTTONDBLCLK:
@@ -247,8 +255,15 @@ static LRESULT CALLBACK Hooked_WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPAR
         case WM_XBUTTONDBLCLK:
         case WM_MOUSEWHEEL:
         case WM_MOUSEHWHEEL:
-            // Intercept all mouse clicks and scrolling so nothing behind the menu is clicked!
+        case WM_MOUSEHOVER:
+        case WM_MOUSELEAVE:
+            // Intercept all mouse movements, clicks, and scrolling so nothing behind the menu is clicked or hovered!
             return 0;
+
+        case WM_SETCURSOR:
+            // Ensure arrow cursor is displayed and game doesn't hide it while menu is open
+            SetCursor(LoadCursorA(nullptr, IDC_ARROW));
+            return TRUE;
 
         case WM_KEYDOWN:
         case WM_KEYUP:
@@ -310,12 +325,127 @@ static DWORD WINAPI Hooked_XInputGetStateEx(DWORD dwUserIndex, XINPUT_STATE* pSt
     return ret;
 }
 
+using GetAsyncKeyState_t = SHORT (WINAPI*)(int);
+static GetAsyncKeyState_t s_origGetAsyncKeyState = nullptr;
+
+using GetKeyboardState_t = BOOL (WINAPI*)(PBYTE);
+static GetKeyboardState_t s_origGetKeyboardState = nullptr;
+
+using GetKeyState_t = SHORT (WINAPI*)(int);
+static GetKeyState_t s_origGetKeyState = nullptr;
+
+using GetCursorPos_t = BOOL (WINAPI*)(LPPOINT);
+static GetCursorPos_t s_origGetCursorPos = nullptr;
+
+static SHORT WINAPI Hooked_GetAsyncKeyState(int vKey) {
+    if (TitleMenu::Instance().IsModalOpen()) {
+        if (vKey == VK_F7) {
+            if (s_origGetAsyncKeyState) return s_origGetAsyncKeyState(vKey);
+            return GetAsyncKeyState(vKey);
+        }
+        return 0;
+    }
+    if (s_origGetAsyncKeyState) return s_origGetAsyncKeyState(vKey);
+    return GetAsyncKeyState(vKey);
+}
+
+static BOOL WINAPI Hooked_GetKeyboardState(PBYTE lpKeyState) {
+    if (TitleMenu::Instance().IsModalOpen()) {
+        if (lpKeyState) {
+            std::memset(lpKeyState, 0, 256);
+        }
+        return TRUE;
+    }
+    if (s_origGetKeyboardState) return s_origGetKeyboardState(lpKeyState);
+    return GetKeyboardState(lpKeyState);
+}
+
+static SHORT WINAPI Hooked_GetKeyState(int nVirtKey) {
+    if (TitleMenu::Instance().IsModalOpen()) {
+        if (nVirtKey == VK_F7) {
+            if (s_origGetKeyState) return s_origGetKeyState(nVirtKey);
+            return GetKeyState(nVirtKey);
+        }
+        return 0;
+    }
+    if (s_origGetKeyState) return s_origGetKeyState(nVirtKey);
+    return GetKeyState(nVirtKey);
+}
+
+static BOOL WINAPI Hooked_GetCursorPos(LPPOINT lpPoint) {
+    if (TitleMenu::Instance().IsModalOpen()) {
+        if (lpPoint) {
+            lpPoint->x = -10000;
+            lpPoint->y = -10000;
+        }
+        return TRUE;
+    }
+    if (s_origGetCursorPos) return s_origGetCursorPos(lpPoint);
+    return GetCursorPos(lpPoint);
+}
+
+static bool InstallIatHook(const char* moduleName, const char* functionName,
+                           void* replacement, void** original) noexcept {
+    HMODULE game = GetModuleHandleW(L"DarkSoulsIII.exe");
+    if (!game) game = GetModuleHandleW(nullptr);
+    if (!game) return false;
+
+    auto* base = reinterpret_cast<const std::byte*>(game);
+    auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE) return false;
+    auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE) return false;
+
+    const auto directory = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    if (!directory.VirtualAddress) return false;
+
+    auto* imports = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR*>(
+        const_cast<std::byte*>(base) + directory.VirtualAddress);
+
+    for (; imports->Name != 0; ++imports) {
+        const auto* imported = reinterpret_cast<const char*>(base + imports->Name);
+        if (_stricmp(imported, moduleName) != 0) continue;
+
+        auto* names = reinterpret_cast<IMAGE_THUNK_DATA64*>(
+            const_cast<std::byte*>(base) + (imports->OriginalFirstThunk
+                ? imports->OriginalFirstThunk : imports->FirstThunk));
+        auto* slots = reinterpret_cast<IMAGE_THUNK_DATA64*>(
+            const_cast<std::byte*>(base) + imports->FirstThunk);
+
+        for (; names->u1.AddressOfData != 0; ++names, ++slots) {
+            if (IMAGE_SNAP_BY_ORDINAL64(names->u1.Ordinal)) continue;
+            const auto* byName = reinterpret_cast<const IMAGE_IMPORT_BY_NAME*>(
+                base + names->u1.AddressOfData);
+            if (std::strcmp(reinterpret_cast<const char*>(byName->Name), functionName) != 0) continue;
+
+            auto* slot = reinterpret_cast<void**>(&slots->u1.Function);
+            DWORD protection = 0;
+            if (!VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &protection)) return false;
+            if (original && !*original) *original = *slot;
+            *slot = replacement;
+            VirtualProtect(slot, sizeof(void*), protection, &protection);
+            FlushInstructionCache(GetCurrentProcess(), slot, sizeof(void*));
+            return true;
+        }
+    }
+    return false;
+}
+
 void TitleMenu::EnsureInputHooks(HWND hWnd) noexcept {
     if (hWnd && hWnd != s_hookedHwnd) {
         s_hookedHwnd = hWnd;
         s_origWndProc = reinterpret_cast<WNDPROC>(
             SetWindowLongPtrW(hWnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&Hooked_WndProc))
         );
+    }
+
+    static bool iatHooked = false;
+    if (!iatHooked) {
+        InstallIatHook("user32.dll", "GetAsyncKeyState", reinterpret_cast<void*>(&Hooked_GetAsyncKeyState), reinterpret_cast<void**>(&s_origGetAsyncKeyState));
+        InstallIatHook("user32.dll", "GetKeyboardState", reinterpret_cast<void*>(&Hooked_GetKeyboardState), reinterpret_cast<void**>(&s_origGetKeyboardState));
+        InstallIatHook("user32.dll", "GetKeyState", reinterpret_cast<void*>(&Hooked_GetKeyState), reinterpret_cast<void**>(&s_origGetKeyState));
+        InstallIatHook("user32.dll", "GetCursorPos", reinterpret_cast<void*>(&Hooked_GetCursorPos), reinterpret_cast<void**>(&s_origGetCursorPos));
+        iatHooked = true;
     }
 
     static bool xinputHooked = false;
