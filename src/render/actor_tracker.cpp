@@ -2,10 +2,15 @@
 #include "actor_draw_identity.h"
 #include "ally_pass_visibility.h"
 #include "d3d11_hook.h"
+#include "title_menu.h"
 
 #include <cmath>
 #include <cstdio>
 #include <algorithm>
+
+#if defined(DS3SC_STANDALONE_TEST) && !defined(DS3SC_HAS_D3D11_HOOK)
+extern "C" volatile LONG ds3scPlayerOutlineEnable = 0;
+#endif
 
 namespace ds3sc::render {
 namespace {
@@ -13,8 +18,8 @@ namespace {
 
 constexpr std::uintptr_t kCandidateWorldChrManRva = 0x477FDB8u;
 constexpr std::uintptr_t kCandidateFieldAreaRva = 0x475ABD0u;
-constexpr std::uintptr_t kCandidateMenuManRva = 0x4762858u;
-constexpr std::uintptr_t kCandidateNewMenuSystemRva = 0x478D040u;
+constexpr std::uintptr_t kCandidateMenuManRva = 0x4763258u;
+constexpr std::uintptr_t kCandidateNewMenuSystemRva = 0x478DA40u;
 
 struct CompanionExportStatus {
     std::uint32_t abi, state, error, giftCount;
@@ -224,18 +229,71 @@ ActorTracker& ActorTracker::Instance() noexcept {
 bool ActorTracker::IsDrawEntityTrackedAsLocal(std::uintptr_t entity) const noexcept {
     if (!entity) return false;
     const auto draw = fastLocalEntity_.load(std::memory_order_relaxed);
-    return draw && (entity == draw || (entity >= 0xd0u && (entity - 0xd0u) == draw));
+    if (draw && (entity == draw || (entity >= 0xd0u && (entity - 0xd0u) == draw))) return true;
+    const auto asmDraw = fastLocalAsmEntity_.load(std::memory_order_relaxed);
+    if (asmDraw) {
+        if (entity == asmDraw || (entity >= 0xd0u && (entity - 0xd0u) == asmDraw)) return true;
+        std::uintptr_t parentAsm = 0;
+        if (SafeRead(entity + 0xe8u, parentAsm) && parentAsm == asmDraw) return true;
+        if (entity >= 0xd0u && SafeRead(entity - 0xd0u + 0xe8u, parentAsm) && parentAsm == asmDraw) return true;
+    }
+    const auto model = fastLocalModel_.load(std::memory_order_relaxed);
+    if (model && entity == model) return true;
+    std::lock_guard<std::recursive_mutex> lock(actorsMutex_);
+    for (const auto& actor : actors_) {
+        if (actor.isLocal) {
+            if (actor.drawEntity && (entity == actor.drawEntity || (entity >= 0xd0u && (entity - 0xd0u) == actor.drawEntity))) return true;
+            if (actor.asmEntity) {
+                if (entity == actor.asmEntity || (entity >= 0xd0u && (entity - 0xd0u) == actor.asmEntity)) return true;
+                std::uintptr_t parentAsm = 0;
+                if (SafeRead(entity + 0xe8u, parentAsm) && parentAsm == actor.asmEntity) return true;
+                if (entity >= 0xd0u && SafeRead(entity - 0xd0u + 0xe8u, parentAsm) && parentAsm == actor.asmEntity) return true;
+            }
+            if (actor.chrModel && entity == actor.chrModel) return true;
+        }
+    }
+    return false;
+}
+
+bool ActorTracker::IsModelTrackedAsLocal(std::uintptr_t model) const noexcept {
+    if (!model) return false;
+    const auto localModel = fastLocalModel_.load(std::memory_order_relaxed);
+    if (localModel && model == localModel) return true;
+    std::lock_guard<std::recursive_mutex> lock(actorsMutex_);
+    for (const auto& actor : actors_) {
+        if (actor.isLocal && actor.chrModel && model == actor.chrModel) return true;
+    }
+    return false;
 }
 
 bool ActorTracker::IsDrawEntityTrackedAsAlly(std::uintptr_t entity) const noexcept {
     if (!entity) return false;
+    if (IsDrawEntityTrackedAsLocal(entity)) return false;
     const std::size_t fastCount = fastAllyCount_.load(std::memory_order_acquire);
     if (fastCount == 0) return false;
 
     for (std::size_t i = 0; i < fastCount && i < kMaxFastAllies; ++i) {
         const auto fastEnt = fastAllyEntities_[i].load(std::memory_order_relaxed);
-        if (fastEnt && (entity == fastEnt || (entity >= 0xd0u && (entity - 0xd0u) == fastEnt))) {
-            return true;
+        if (fastEnt) {
+            if (entity == fastEnt || (entity >= 0xd0u && (entity - 0xd0u) == fastEnt)) {
+                return true;
+            }
+            std::uintptr_t parentAsm = 0;
+            if (SafeRead(entity + 0xe8u, parentAsm) && parentAsm == fastEnt) return true;
+            if (entity >= 0xd0u && SafeRead(entity - 0xd0u + 0xe8u, parentAsm) && parentAsm == fastEnt) return true;
+        }
+    }
+    std::lock_guard<std::recursive_mutex> lock(actorsMutex_);
+    for (const auto& actor : actors_) {
+        if (actor.isAlly) {
+            if (actor.drawEntity && (entity == actor.drawEntity || (entity >= 0xd0u && (entity - 0xd0u) == actor.drawEntity))) return true;
+            if (actor.asmEntity) {
+                if (entity == actor.asmEntity || (entity >= 0xd0u && (entity - 0xd0u) == actor.asmEntity)) return true;
+                std::uintptr_t parentAsm = 0;
+                if (SafeRead(entity + 0xe8u, parentAsm) && parentAsm == actor.asmEntity) return true;
+                if (entity >= 0xd0u && SafeRead(entity - 0xd0u + 0xe8u, parentAsm) && parentAsm == actor.asmEntity) return true;
+            }
+            if (actor.chrModel && entity == actor.chrModel) return true;
         }
     }
     return false;
@@ -253,31 +311,19 @@ std::size_t ActorTracker::GetFastAllyEntities(std::uintptr_t* outEntities, std::
 
 bool ActorTracker::IsModelTrackedAsAlly(std::uintptr_t model) const noexcept {
     if (!model) return false;
+    if (IsModelTrackedAsLocal(model)) return false;
     const std::size_t fastCount = fastAllyModelCount_.load(std::memory_order_acquire);
     for (std::size_t i = 0; i < fastCount && i < kMaxFastAllies * 4; ++i) {
         if (fastAllyModels_[i].load(std::memory_order_relaxed) == model) return true;
     }
     CompanionExportStatus comp{};
-    if (ReadCompanionStatus(comp) && comp.abi == 1 && comp.state == 3) {
+    if (ReadCompanionStatus(comp) && comp.abi == 1 && comp.state == 3 && comp.actor != 0) {
         if (comp.model != 0 && comp.model == model) return true;
-        std::uintptr_t draw = comp.drawEntity;
-        if (!draw && comp.model) SafeRead(comp.model + 0x8u, draw);
-        if (draw) {
-            std::uintptr_t fm = 0, fd = 0;
-            if (SafeRead(draw + 0xe8u, fm) && fm) {
-                if (fm == model) return true;
-                if (SafeRead(fm + 0x8u, fd) && fd == model) return true;
-            }
-            if (SafeRead(draw + 0xb00u, fd) && fd == model) return true;
-        }
     }
     std::lock_guard<std::recursive_mutex> lock(actorsMutex_);
-    for (const auto& actor : actors_) {
-        if (actor.isLocal) {
-            if (actor.flverData == model || actor.flverModel == model || actor.chrModel == model) return false;
-        }
-        if (actor.isAlly) {
-            if (actor.flverData == model || actor.flverModel == model || actor.chrModel == model) return true;
+    for (const auto& a : actors_) {
+        if (a.isAlly && a.chrModel && a.chrModel == model) {
+            return true;
         }
     }
     return false;
@@ -345,7 +391,6 @@ void ActorTracker::Update(std::uint64_t frameNumber) noexcept {
     actors_.clear();
     hasValidCamera_ = false;
     allyCount_ = 0;
-    fastLocalEntity_.store(0, std::memory_order_relaxed);
 
     auto gameBase = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(L"DarkSoulsIII.exe"));
     if (!gameBase) gameBase = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
@@ -361,9 +406,22 @@ void ActorTracker::Update(std::uint64_t frameNumber) noexcept {
         hasValidCamera_ = true;
     }
 
-    // 1. Check local companion test dummy (ds3sc_companion)
+    // 1. Read candidate WorldChrManImp and local player first
+    std::uintptr_t worldChrMan = 0;
+    std::uintptr_t localChr = 0;
+    if (SafeRead(gameBase + kCandidateWorldChrManRva, worldChrMan) && worldChrMan != 0) {
+        SafeRead(worldChrMan + 0x80u, localChr);
+    }
+    if (worldChrMan == 0 || localChr == 0) {
+        fastLocalEntity_.store(0, std::memory_order_relaxed);
+        fastLocalAsmEntity_.store(0, std::memory_order_relaxed);
+        fastLocalModel_.store(0, std::memory_order_relaxed);
+    }
+
+    // 2. Check local companion test dummy (ds3sc_companion)
     CompanionExportStatus compStatus{};
-    if (ReadCompanionStatus(compStatus) && compStatus.abi == 1 && compStatus.state == 3 && compStatus.actor != 0) {
+    if (ReadCompanionStatus(compStatus) && compStatus.abi == 1 && compStatus.state == 3 &&
+        compStatus.actor != 0 && compStatus.actor != localChr) {
         TrackedActor compActor{};
         compActor.chrIns = compStatus.actor;
         compActor.chrModel = compStatus.model;
@@ -387,6 +445,7 @@ void ActorTracker::Update(std::uint64_t frameNumber) noexcept {
                     SafeRead(compActor.drawEntity + 0xb00u, compActor.flverData);
                 }
             }
+            SafeRead(compActor.chrModel + 0x3c58u, compActor.asmEntity);
         }
         compActor.isAlly = true;
         compActor.isLocal = false;
@@ -412,55 +471,67 @@ void ActorTracker::Update(std::uint64_t frameNumber) noexcept {
         allyCount_++;
     }
 
-    // 2. Check candidate WorldChrManImp
-    std::uintptr_t worldChrMan = 0;
-    if (SafeRead(gameBase + kCandidateWorldChrManRva, worldChrMan) && worldChrMan != 0) {
-        // Local player in world + 0x80
-        std::uintptr_t localChr = 0;
-        if (SafeRead(worldChrMan + 0x80u, localChr) && localChr != 0) {
-            TrackedActor localActor{};
-            localActor.chrIns = localChr;
+    // 3. Process Local Player
+    if (worldChrMan != 0 && localChr != 0) {
+        TrackedActor localActor{};
+        localActor.chrIns = localChr;
 
-            SafeRead(localChr + 0x48u, localActor.chrModel);
-            if (localActor.chrModel != 0) {
-                SafeRead(localActor.chrModel + 0x8u, localActor.drawEntity);
-                if (localActor.drawEntity != 0) {
-                    SafeRead(localActor.drawEntity + 0x20u, localActor.meshCount);
-                    SafeRead(localActor.drawEntity + 0xe8u, localActor.flverModel);
-                    if (localActor.flverModel != 0) {
-                        SafeRead(localActor.flverModel + 0x8u, localActor.flverData);
-                    }
-                    if (!localActor.flverData) {
-                        SafeRead(localActor.drawEntity + 0xb00u, localActor.flverData);
-                    }
-                    fastLocalEntity_.store(localActor.drawEntity, std::memory_order_release);
+        SafeRead(localChr + 0x48u, localActor.chrModel);
+        if (localActor.chrModel != 0) {
+            fastLocalModel_.store(localActor.chrModel, std::memory_order_release);
+            SafeRead(localActor.chrModel + 0x8u, localActor.drawEntity);
+            if (localActor.drawEntity != 0) {
+                SafeRead(localActor.drawEntity + 0x20u, localActor.meshCount);
+                SafeRead(localActor.drawEntity + 0xe8u, localActor.flverModel);
+                if (localActor.flverModel != 0) {
+                    SafeRead(localActor.flverModel + 0x8u, localActor.flverData);
                 }
+                if (!localActor.flverData) {
+                    SafeRead(localActor.drawEntity + 0xb00u, localActor.flverData);
+                }
+                fastLocalEntity_.store(localActor.drawEntity, std::memory_order_release);
+            } else {
+                fastLocalEntity_.store(0, std::memory_order_release);
             }
 
-            localActor.isLocal = true;
-            localActor.isAlly = false;
-            localActor.lastSeenFrame = frameNumber;
-            std::snprintf(localActor.nativeType, sizeof(localActor.nativeType), "LocalPlayer");
-            SafeRead(localChr + 0x70u, localActor.charType);
-            SafeRead(localChr + 0x74u, localActor.teamType);
-
-            bool hasLocalPos = TryReadActorPosition(localChr, localActor.position);
-            if (!hasLocalPos && localActor.chrModel) {
-                hasLocalPos = TryReadActorPositionFromModel(localActor.chrModel, localActor.position);
-            }
-            if (hasLocalPos) {
-                if (hasValidCamera_) {
-                    localActor.relPosition[0] = localActor.position[0] - cameraPos_[0];
-                    localActor.relPosition[1] = localActor.position[1] - cameraPos_[1];
-                    localActor.relPosition[2] = localActor.position[2] - cameraPos_[2];
-
-                    localActor.viewPosition[0] = localActor.position[0] * viewMatrix_[0] + localActor.position[1] * viewMatrix_[4] + localActor.position[2] * viewMatrix_[8] + viewMatrix_[12];
-                    localActor.viewPosition[1] = localActor.position[0] * viewMatrix_[1] + localActor.position[1] * viewMatrix_[5] + localActor.position[2] * viewMatrix_[9] + viewMatrix_[13];
-                    localActor.viewPosition[2] = localActor.position[0] * viewMatrix_[2] + localActor.position[1] * viewMatrix_[6] + localActor.position[2] * viewMatrix_[10] + viewMatrix_[14];
+            SafeRead(localActor.chrModel + 0x3c58u, localActor.asmEntity);
+            if (localActor.asmEntity == 0) {
+                std::uintptr_t p20b0 = 0;
+                if (SafeRead(localChr + 0x20b0u, p20b0) && p20b0 != 0) {
+                    SafeRead(p20b0 + 0x8u, localActor.asmEntity);
                 }
-                actors_.push_back(localActor);
+            }
+            fastLocalAsmEntity_.store(localActor.asmEntity, std::memory_order_release);
+        } else {
+            fastLocalModel_.store(0, std::memory_order_release);
+            fastLocalEntity_.store(0, std::memory_order_release);
+            fastLocalAsmEntity_.store(0, std::memory_order_release);
+        }
+
+        localActor.isLocal = true;
+        localActor.isAlly = false;
+        localActor.lastSeenFrame = frameNumber;
+        std::snprintf(localActor.nativeType, sizeof(localActor.nativeType), "LocalPlayer");
+        SafeRead(localChr + 0x70u, localActor.charType);
+        SafeRead(localChr + 0x74u, localActor.teamType);
+
+        bool hasLocalPos = TryReadActorPosition(localChr, localActor.position);
+        if (!hasLocalPos && localActor.chrModel) {
+            hasLocalPos = TryReadActorPositionFromModel(localActor.chrModel, localActor.position);
+        }
+        if (hasLocalPos) {
+            if (hasValidCamera_) {
+                localActor.relPosition[0] = localActor.position[0] - cameraPos_[0];
+                localActor.relPosition[1] = localActor.position[1] - cameraPos_[1];
+                localActor.relPosition[2] = localActor.position[2] - cameraPos_[2];
+
+                localActor.viewPosition[0] = localActor.position[0] * viewMatrix_[0] + localActor.position[1] * viewMatrix_[4] + localActor.position[2] * viewMatrix_[8] + viewMatrix_[12];
+                localActor.viewPosition[1] = localActor.position[0] * viewMatrix_[1] + localActor.position[1] * viewMatrix_[5] + localActor.position[2] * viewMatrix_[9] + viewMatrix_[13];
+                localActor.viewPosition[2] = localActor.position[0] * viewMatrix_[2] + localActor.position[1] * viewMatrix_[6] + localActor.position[2] * viewMatrix_[10] + viewMatrix_[14];
             }
         }
+        actors_.push_back(localActor);
+    }
 
         // Remote player slots in world + 0x40 (count at +0x38)
         std::uint32_t slotCount = 0;
@@ -497,6 +568,13 @@ void ActorTracker::Update(std::uint64_t frameNumber) noexcept {
                             SafeRead(remoteActor.drawEntity + 0xb00u, remoteActor.flverData);
                         }
                     }
+                    SafeRead(remoteActor.chrModel + 0x3c58u, remoteActor.asmEntity);
+                    if (remoteActor.asmEntity == 0) {
+                        std::uintptr_t p20b0 = 0;
+                        if (SafeRead(remoteChr + 0x20b0u, p20b0) && p20b0 != 0) {
+                            SafeRead(p20b0 + 0x8u, remoteActor.asmEntity);
+                        }
+                    }
                 }
                 remoteActor.isLocal = false;
                 remoteActor.isAlly = true; // Player in coop slot
@@ -524,8 +602,8 @@ void ActorTracker::Update(std::uint64_t frameNumber) noexcept {
                 allyCount_++;
             }
         }
-    }
 
+    const bool includeLocal = (ds3scPlayerOutlineEnable != 0);
     std::array<std::uintptr_t, kMaxFastAllies> fastList{};
     std::size_t fastTotal = 0;
     auto addFast = [&](std::uintptr_t e) {
@@ -536,67 +614,60 @@ void ActorTracker::Update(std::uint64_t frameNumber) noexcept {
         if (fastTotal < kMaxFastAllies) fastList[fastTotal++] = e;
     };
     for (const auto& a : actors_) {
-        if (a.isAlly && a.drawEntity) {
-            addFast(a.drawEntity);
-            MakeAllyPersistentlyVisible(a.drawEntity);
+        if (a.isAlly) {
+            if (a.drawEntity) {
+                addFast(a.drawEntity);
+                MakeAllyPersistentlyVisible(a.drawEntity);
+            }
+            if (a.asmEntity) {
+                addFast(a.asmEntity);
+                MakeAllyPersistentlyVisible(a.asmEntity);
+            }
+        } else if (a.isLocal && includeLocal) {
+            if (a.drawEntity) MakeAllyPersistentlyVisible(a.drawEntity);
+            if (a.asmEntity) MakeAllyPersistentlyVisible(a.asmEntity);
         }
     }
     for (std::size_t i = 0; i < fastTotal; ++i) {
         fastAllyEntities_[i].store(fastList[i], std::memory_order_relaxed);
     }
+    for (std::size_t i = fastTotal; i < kMaxFastAllies; ++i) {
+        fastAllyEntities_[i].store(0, std::memory_order_relaxed);
+    }
+    fastAllyCount_.store(fastTotal, std::memory_order_release);
+
     std::array<FastAllyBounds, kMaxFastAllies> fastBounds{};
-    for (std::size_t i = 0; i < fastTotal; ++i) {
-        const auto entity = fastList[i];
-        float minPos[3] = { -999999.0f, -999999.0f, -999999.0f };
-        float maxPos[3] = {  999999.0f,  999999.0f,  999999.0f };
-        bool hasBounds = false;
+    std::size_t boundsCount = 0;
+    for (const auto& a : actors_) {
+        if ((a.isAlly || (a.isLocal && includeLocal)) && boundsCount < kMaxFastAllies) {
+            float minPos[3] = { -999999.0f, -999999.0f, -999999.0f };
+            float maxPos[3] = {  999999.0f,  999999.0f,  999999.0f };
+            bool hasBounds = false;
 
-        // 1. Primary source: live 3D world position of tracked ally from physics/tracker
-        for (const auto& a : actors_) {
-            if (a.isAlly && (a.drawEntity == entity || (!a.drawEntity && a.chrIns != 0))) {
-                if (std::isfinite(a.position[0]) && std::isfinite(a.position[1]) && std::isfinite(a.position[2]) &&
-                    (std::abs(a.position[0]) > 0.01f || std::abs(a.position[1]) > 0.01f || std::abs(a.position[2]) > 0.01f)) {
-                    minPos[0] = a.position[0] - 5.0f;
-                    minPos[1] = a.position[1] - 4.0f;
-                    minPos[2] = a.position[2] - 5.0f;
-                    maxPos[0] = a.position[0] + 5.0f;
-                    maxPos[1] = a.position[1] + 6.0f;
-                    maxPos[2] = a.position[2] + 5.0f;
-                    hasBounds = true;
-                    break;
-                }
+            if (std::isfinite(a.position[0]) && std::isfinite(a.position[1]) && std::isfinite(a.position[2]) &&
+                (std::abs(a.position[0]) > 0.01f || std::abs(a.position[1]) > 0.01f || std::abs(a.position[2]) > 0.01f)) {
+                minPos[0] = a.position[0] - 5.0f;
+                minPos[1] = a.position[1] - 4.0f;
+                minPos[2] = a.position[2] - 5.0f;
+                maxPos[0] = a.position[0] + 5.0f;
+                maxPos[1] = a.position[1] + 6.0f;
+                maxPos[2] = a.position[2] + 5.0f;
+                hasBounds = true;
             }
-        }
 
-        // 2. Direct fallback from companion export status actor
-        if (!hasBounds) {
-            CompanionExportStatus fallbackComp{};
-            if (ReadCompanionStatus(fallbackComp) && fallbackComp.actor) {
-                float pos[3]{};
-                if (TryReadActorPosition(fallbackComp.actor, pos) &&
-                    (std::abs(pos[0]) > 0.01f || std::abs(pos[1]) > 0.01f || std::abs(pos[2]) > 0.01f)) {
-                    minPos[0] = pos[0] - 5.0f;
-                    minPos[1] = pos[1] - 4.0f;
-                    minPos[2] = pos[2] - 5.0f;
-                    maxPos[0] = pos[0] + 5.0f;
-                    maxPos[1] = pos[1] + 6.0f;
-                    maxPos[2] = pos[2] + 5.0f;
-                    hasBounds = true;
-                }
+            if (hasBounds) {
+                fastBounds[boundsCount].minX = minPos[0];
+                fastBounds[boundsCount].minY = minPos[1];
+                fastBounds[boundsCount].minZ = minPos[2];
+                fastBounds[boundsCount].maxX = maxPos[0];
+                fastBounds[boundsCount].maxY = maxPos[1];
+                fastBounds[boundsCount].maxZ = maxPos[2];
+                ++boundsCount;
             }
-        }
-
-        if (hasBounds) {
-            fastBounds[i].minX = minPos[0];
-            fastBounds[i].minY = minPos[1];
-            fastBounds[i].minZ = minPos[2];
-            fastBounds[i].maxX = maxPos[0];
-            fastBounds[i].maxY = maxPos[1];
-            fastBounds[i].maxZ = maxPos[2];
         }
     }
     fastAllyBounds_ = fastBounds;
-    fastAllyCount_.store(fastTotal, std::memory_order_release);
+    fastAllyBoundsCount_.store(boundsCount, std::memory_order_release);
 
     std::array<std::uintptr_t, kMaxFastAllies * 4> fastModels{};
     std::size_t fastModelTotal = 0;
@@ -608,10 +679,8 @@ void ActorTracker::Update(std::uint64_t frameNumber) noexcept {
         if (fastModelTotal < kMaxFastAllies * 4) fastModels[fastModelTotal++] = m;
     };
     for (const auto& a : actors_) {
-        if (a.isAlly) {
-            if (a.flverData) addFastModel(a.flverData);
-            if (a.flverModel) addFastModel(a.flverModel);
-            if (a.chrModel) addFastModel(a.chrModel);
+        if (a.isAlly && a.chrModel) {
+            addFastModel(a.chrModel);
         }
     }
     for (std::size_t i = 0; i < fastModelTotal; ++i) {
@@ -753,7 +822,7 @@ CorrelationResult ActorTracker::CheckConstantBufferCorrelation(
 
 bool ActorTracker::BoundsContainAlly(const float* b) const noexcept {
     if (!b) return false;
-    const auto count = fastAllyCount_.load(std::memory_order_acquire);
+    const auto count = fastAllyBoundsCount_.load(std::memory_order_acquire);
     if (count == 0) return false;
 
     // b[0..2] is min, b[4..6] is max
@@ -819,36 +888,38 @@ bool ActorTracker::ProjectWorldToScreen(
 }
 
 bool ActorTracker::IsGameMenuOpen() const noexcept {
-    auto gameBase = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(L"DarkSoulsIII.exe"));
-    if (!gameBase) gameBase = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
-    if (!gameBase) return true;
+#if !defined(DS3SC_STANDALONE_TEST)
+    // Check mod's own config/settings modal overlay (F11)
+    if (TitleMenu::Instance().IsModalOpen()) return true;
+#endif
 
-    // If camera is uninitialized or invalid, game is loading or in title screen
+    // Do not draw screen-space markers while the game is still loading or a
+    // native DS3 menu owns the scene.  This function is read-only and uses the
+    // guarded reads already used by the actor tracker.
     {
         std::lock_guard<std::recursive_mutex> lock(actorsMutex_);
         if (!cameraData_.valid) return true;
     }
 
-    // Check WorldChrMan: if not present or local player is null, game is in loading/menu state
+    auto gameBase = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(L"DarkSoulsIII.exe"));
+    if (!gameBase) gameBase = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
+    if (!gameBase) return true;
+
     std::uintptr_t worldChrMan = 0;
-    if (!SafeRead(gameBase + kCandidateWorldChrManRva, worldChrMan) || !worldChrMan) {
-        return true;
-    }
     std::uintptr_t localChr = 0;
-    if (!SafeRead(worldChrMan + 0x80u, localChr) || !localChr) {
+    if (!SafeRead(gameBase + kCandidateWorldChrManRva, worldChrMan) || !worldChrMan ||
+        !SafeRead(worldChrMan + 0x80u, localChr) || !localChr) {
         return true;
     }
 
-    // Check MenuMan (RVA 0x4763258u)
-    // Verified engine function 0x140763ef0:
-    // mov rcx, [MenuMan] (0x4763258); cmp qword ptr [rcx + 0x1d50], 0; setne al; ret
-    // [rcx + 0x1d50] is non-null when any menu (Inventory, Equipment, Status, Settings, Bonfire, Talk) is open
+    // MenuMan + 0x1D50 is the active-menu pointer for the supported DS3 build.
+    // If the executable layout differs, SafeRead fails and only the marker
+    // suppression is skipped; it cannot affect the render target.
     std::uintptr_t menuMan = 0;
-    if (SafeRead(gameBase + 0x4763258u, menuMan) && menuMan != 0) {
-        std::uintptr_t activeMenu = 0;
-        if (SafeRead(menuMan + 0x1D50u, activeMenu) && activeMenu != 0) {
-            return true;
-        }
+    std::uintptr_t activeMenu = 0;
+    if (SafeRead(gameBase + kCandidateMenuManRva, menuMan) && menuMan != 0 &&
+        SafeRead(menuMan + 0x1D50u, activeMenu) && activeMenu != 0) {
+        return true;
     }
 
     return false;
@@ -869,23 +940,140 @@ bool ActorTracker::IsActorOccluded(const TrackedActor& a) const noexcept {
     return false;
 }
 
+bool ActorTracker::IsRayOccludedByLocalPlayer(const float targetWorldPos[3]) const noexcept {
+    if (!targetWorldPos) return false;
+
+    // Find local player actor
+    const TrackedActor* localActor = nullptr;
+    for (const auto& a : actors_) {
+        if (a.isLocal) {
+            localActor = &a;
+            break;
+        }
+    }
+    if (!localActor) return false;
+
+    const float* cam = cameraData_.pos;
+    const float* target = targetWorldPos;
+    const float* local = localActor->position;
+
+    // A marker above the head is intentionally allowed to remain visible. The
+    // previous vertical capsule made a nearly-overhead marker vanish as soon
+    // as its projected ray grazed the character's neck.
+    if (target[1] > local[1] + 1.75f) return false;
+
+    // Vector from camera to target marker
+    const float d1x = target[0] - cam[0];
+    const float d1y = target[1] - cam[1];
+    const float d1z = target[2] - cam[2];
+    const float rayLenSq = d1x * d1x + d1y * d1y + d1z * d1z;
+    if (rayLenSq <= 0.0001f) return false;
+
+    // Vector from camera to local player character
+    const float toLocalX = local[0] - cam[0];
+    const float toLocalY = (local[1] + 0.95f) - cam[1];
+    const float toLocalZ = local[2] - cam[2];
+    const float localDistSq = toLocalX * toLocalX + toLocalY * toLocalY + toLocalZ * toLocalZ;
+
+    // If marker is closer to camera than local player, local player cannot occlude it
+    if (rayLenSq < localDistSq) return false;
+
+    // Local player body only: keep the occlusion volume narrower than the
+    // native collision capsule so a nearby ally marker is not suppressed just
+    // because the two characters are standing shoulder-to-shoulder.
+    const float p3x = local[0];
+    const float p3y = local[1] + 0.25f;
+    const float p3z = local[2];
+
+    const float d2x = 0.0f;
+    const float d2y = 1.20f; // Torso only; head/overhead markers remain visible
+    const float d2z = 0.0f;
+
+    // Segment 1: Cam (p1) to Target (p2 = p1 + d1)
+    // Segment 2: P3 to P4 (p3 + d2)
+    // Find closest distance between segments
+    const float rx = cam[0] - p3x;
+    const float ry = cam[1] - p3y;
+    const float rz = cam[2] - p3z;
+
+    const float a = rayLenSq; // dot(d1, d1)
+    const float e = d2y * d2y; // dot(d2, d2)
+    const float f = d2y * ry;  // dot(d2, r)
+    const float c = d1x * rx + d1y * ry + d1z * rz; // dot(d1, r)
+    const float b = d1y * d2y; // dot(d1, d2)
+
+    const float denom = a * e - b * b;
+    float s = 0.0f;
+    if (std::abs(denom) > 1e-6f) {
+        s = (b * f - c * e) / denom;
+        if (s < 0.0f) s = 0.0f;
+        else if (s > 1.0f) s = 1.0f;
+    }
+
+    float t = (b * s + f) / e;
+    if (t < 0.0f) {
+        t = 0.0f;
+        s = -c / a;
+        if (s < 0.0f) s = 0.0f;
+        else if (s > 1.0f) s = 1.0f;
+    } else if (t > 1.0f) {
+        t = 1.0f;
+        s = (b - c) / a;
+        if (s < 0.0f) s = 0.0f;
+        else if (s > 1.0f) s = 1.0f;
+    }
+
+    // Closest point on ray: cam + d1 * s
+    // Closest point on capsule segment: p3 + d2 * t
+    const float c1x = cam[0] + d1x * s;
+    const float c1y = cam[1] + d1y * s;
+    const float c1z = cam[2] + d1z * s;
+
+    const float c2x = p3x + d2x * t;
+    const float c2y = p3y + d2y * t;
+    const float c2z = p3z + d2z * t;
+
+    const float distX = c1x - c2x;
+    const float distY = c1y - c2y;
+    const float distZ = c1z - c2z;
+    const float distSq = distX * distX + distY * distY + distZ * distZ;
+
+    // A tight visual body radius.  The previous 0.50m radius made markers
+    // disappear while an ally was merely close to the player's shoulder.
+    constexpr float kCharRadius = 0.28f;
+    constexpr float kCharRadiusSq = kCharRadius * kCharRadius;
+
+    // Occluded if closest distance is within capsule radius AND
+    // the intersection occurs between camera and marker (s is in (0.02, 0.95))
+    return (distSq <= kCharRadiusSq && s > 0.02f && s < 0.95f);
+}
+
 std::size_t ActorTracker::GetAllyProjections(
     AllyScreenProjection* outProjections,
     std::size_t maxCount,
     float screenW,
-    float screenH
+    float screenH,
+    bool cullLocalPlayer
 ) const noexcept {
     if (!outProjections || maxCount == 0) return 0;
-
-    // Do not show markers if any menu, inventory, dialogue, or loading screen is open
-    if (IsGameMenuOpen()) return 0;
 
     std::lock_guard<std::recursive_mutex> lock(actorsMutex_);
     if (!cameraData_.valid || screenW <= 0.0f || screenH <= 0.0f) return 0;
 
     std::size_t count = 0;
     for (const auto& a : actors_) {
-        if (!a.isAlly || count >= maxCount) continue;
+        if (!a.isAlly || a.isLocal || count >= maxCount) continue;
+
+        const float markerWorldPos[3] = {
+            a.position[0], a.position[1] + 2.15f, a.position[2]
+        };
+
+        // When the renderer has a current-frame local-player mask, the pixel
+        // shader performs exact silhouette occlusion. Do not also apply the
+        // coarse CPU capsule in that mode: it can reject an overhead marker
+        // before the silhouette mask gets a chance to decide per-pixel.
+        if (cullLocalPlayer && IsRayOccludedByLocalPlayer(markerWorldPos)) continue;
+
         float sx = 0.0f, sy = 0.0f, dist = 0.0f;
         // Project diamond marker overhead (+2.15m height)
         if (ProjectWorldToScreen(a.position, sx, sy, dist, screenW, screenH, 2.15f)) {
@@ -904,4 +1092,4 @@ std::size_t ActorTracker::GetAllyProjections(
     return count;
 }
 
-} // namespace ds3sc::render
+} // namespace ds3sc::render

@@ -179,12 +179,15 @@ class LiveAllyOutline final {
 public:
     static LiveAllyOutline& Instance() noexcept;
     bool Capture(ID3D11DeviceContext*, const ReplayDrawParams&, void* original, bool localPlayer = false) noexcept;
-    HRESULT Present(IDXGISwapChain*, bool enabled, bool showMask = false, float thickness = 2.0f, bool visibleOutline = true, bool fillSilhouette = false, float fillOpacity = 0.30f, bool fallbackMarkers = true) noexcept;
+    HRESULT Present(IDXGISwapChain*, bool enabled, bool showMask = false, float thickness = 2.0f, bool visibleOutline = true, bool fillSilhouette = false, float fillOpacity = 0.30f, bool fallbackMarkers = true, bool playerOutline = false) noexcept;
     void BeforeDepthClear(ID3D11DeviceContext*, ID3D11DepthStencilView*, UINT flags, float depth) noexcept;
     void Finish(ID3D11DeviceContext*, ID3D11CommandList*) noexcept;
     bool Executed(ID3D11CommandList*) noexcept;
     void Reset() noexcept;
     [[nodiscard]] UINT CapturesThisFrame() const noexcept { return lastCaptures_; }
+    [[nodiscard]] ID3D11ShaderResourceView* GetLocalMaskView() const noexcept { return localView_.Get(); }
+    [[nodiscard]] UINT GetLocalCaptures() const noexcept { return localCaptures_ ? localCaptures_ : lastLocalCaptures_; }
+    HRESULT EnsureInitialized(ID3D11Device* device, UINT width, UINT height) noexcept;
 private:
     LiveAllyOutline() = default;
     HRESULT Initialize(ID3D11Device*, UINT width, UINT height) noexcept;
@@ -203,7 +206,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D11DepthStencilState> captureDepth_;
     Microsoft::WRL::ComPtr<ID3D11BlendState> overwrite_;
     UINT width_ = 0, height_ = 0, captures_ = 0, lastCaptures_ = 0;
-    UINT localCaptures_ = 0;
+    UINT localCaptures_ = 0, lastLocalCaptures_ = 0;
     std::uint64_t frame_ = 1, generation_ = 0;
     bool reversed_ = false, sceneFrozen_ = false, mixedScene_ = false;
     // The engine may transfer its immediate context between serialized threads.
@@ -217,6 +220,7 @@ private:
     UINT nextClear_ = 0;
     void EndFrame() noexcept;
     void RenderFallbackMarkers(ID3D11DeviceContext* context, ID3D11RenderTargetView* targetRTV) noexcept;
+    HRESULT RenderPlayerDiagnostic(ID3D11DeviceContext* context, ID3D11RenderTargetView* targetRTV, bool fillSilhouette, float thickness) noexcept;
 
     Microsoft::WRL::ComPtr<ID3D11VertexShader> markerVertexShader_;
     Microsoft::WRL::ComPtr<ID3D11PixelShader> markerPixelShader_;
@@ -224,6 +228,16 @@ private:
     Microsoft::WRL::ComPtr<ID3D11BlendState> markerBlendState_;
     Microsoft::WRL::ComPtr<ID3D11DepthStencilState> markerDepthState_;
     Microsoft::WRL::ComPtr<ID3D11RasterizerState> markerRaster_;
+
+    // Diagnostic-only composition of the local player's actual captured
+    // silhouette. Kept separate from the ally outline pipeline so enabling
+    // it does not alter ally rendering or marker occlusion behavior.
+    Microsoft::WRL::ComPtr<ID3D11VertexShader> playerVertexShader_;
+    Microsoft::WRL::ComPtr<ID3D11PixelShader> playerPixelShader_;
+    Microsoft::WRL::ComPtr<ID3D11Buffer> playerConstantBuffer_;
+    Microsoft::WRL::ComPtr<ID3D11BlendState> playerBlendState_;
+    Microsoft::WRL::ComPtr<ID3D11DepthStencilState> playerDepthState_;
+    Microsoft::WRL::ComPtr<ID3D11RasterizerState> playerRaster_;
 };
 
 } // namespace ds3sc::render

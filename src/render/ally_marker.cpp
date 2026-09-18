@@ -1,5 +1,8 @@
 #include "ally_marker.h"
 #include "actor_tracker.h"
+#if (defined(DS3SC_FEATURE_ALLY_OUTLINE) && DS3SC_FEATURE_ALLY_OUTLINE) || (defined(DS3SC_FEATURE_PLAYER_OUTLINE) && DS3SC_FEATURE_PLAYER_OUTLINE)
+#include "ally_outline.h"
+#endif
 #include <d3dcompiler.h>
 #include <cmath>
 #include <cstring>
@@ -172,12 +175,21 @@ HRESULT LiveAllyMarkers::Present(IDXGISwapChain* swap, bool enabled) noexcept {
         return E_FAIL;
     }
 
+    ID3D11ShaderResourceView* localView = nullptr;
+    bool hasLocal = false;
+#if (defined(DS3SC_FEATURE_ALLY_OUTLINE) && DS3SC_FEATURE_ALLY_OUTLINE) || (defined(DS3SC_FEATURE_PLAYER_OUTLINE) && DS3SC_FEATURE_PLAYER_OUTLINE)
+    LiveAllyOutline::Instance().EnsureInitialized(device.Get(), desc.Width, desc.Height);
+    localView = LiveAllyOutline::Instance().GetLocalMaskView();
+    hasLocal = (localView && LiveAllyOutline::Instance().GetLocalCaptures() > 0);
+#endif
+
     ActorTracker::AllyScreenProjection projections[8]{};
     const std::size_t projCount = ActorTracker::Instance().GetAllyProjections(
         projections,
         8,
         static_cast<float>(width_),
-        static_cast<float>(height_)
+        static_cast<float>(height_),
+        !hasLocal
     );
     if (projCount == 0) return S_OK;
 
@@ -187,7 +199,7 @@ HRESULT LiveAllyMarkers::Present(IDXGISwapChain* swap, bool enabled) noexcept {
 
     MarkerConstants cb{};
     cb.markerCount = static_cast<UINT>(projCount);
-    cb.hasLocalMask = 0;
+    cb.hasLocalMask = hasLocal ? 1 : 0;
     // DS3 Ash White
     cb.markerColor[0] = 0.871f;
     cb.markerColor[1] = 0.847f;
@@ -263,6 +275,9 @@ HRESULT LiveAllyMarkers::Present(IDXGISwapChain* swap, bool enabled) noexcept {
     Microsoft::WRL::ComPtr<ID3D11Buffer> prevPsCb;
     context->PSGetConstantBuffers(0, 1, &prevPsCb);
 
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> prevPsSrv;
+    context->PSGetShaderResources(0, 1, &prevPsSrv);
+
     D3D11_PRIMITIVE_TOPOLOGY prevTopology;
     context->IAGetPrimitiveTopology(&prevTopology);
 
@@ -277,12 +292,22 @@ HRESULT LiveAllyMarkers::Present(IDXGISwapChain* swap, bool enabled) noexcept {
     ID3D11Buffer* cbs[] = { markerConstantBuffer_.Get() };
     context->PSSetConstantBuffers(0, 1, cbs);
 
+    if (cb.hasLocalMask != 0 && localView) {
+        ID3D11ShaderResourceView* srvs[] = { localView };
+        context->PSSetShaderResources(0, 1, srvs);
+    }
+
     ID3D11RenderTargetView* rtvs[] = { targetRtv.Get() };
     context->OMSetRenderTargets(1, rtvs, nullptr);
     context->OMSetBlendState(markerBlendState_.Get(), nullptr, 0xffffffff);
     context->OMSetDepthStencilState(markerDepthState_.Get(), 0);
 
     context->Draw(3, 0);
+
+    if (cb.hasLocalMask != 0) {
+        ID3D11ShaderResourceView* nullSrvs[] = { nullptr };
+        context->PSSetShaderResources(0, 1, nullSrvs);
+    }
 
     // Restore state
     context->RSSetViewports(numViewports, prevViewports);
@@ -294,6 +319,8 @@ HRESULT LiveAllyMarkers::Present(IDXGISwapChain* swap, bool enabled) noexcept {
     context->VSSetConstantBuffers(0, 1, vsCbs);
     ID3D11Buffer* psCbs[] = { prevPsCb.Get() };
     context->PSSetConstantBuffers(0, 1, psCbs);
+    ID3D11ShaderResourceView* prevSrvs[] = { prevPsSrv.Get() };
+    context->PSSetShaderResources(0, 1, prevSrvs);
     ID3D11RenderTargetView* prevRtvs[] = { prevRtv.Get() };
     context->OMSetRenderTargets(1, prevRtvs, prevDsv.Get());
     context->OMSetBlendState(prevBlend.Get(), prevBlendFactor, prevSampleMask);

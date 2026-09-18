@@ -36,6 +36,19 @@ struct alignas(16) MarkerConstants {
 };
 static_assert(sizeof(MarkerConstants) == 160);
 
+struct PlayerDiagnosticConstants {
+    UINT width;
+    UINT height;
+    float thickness;
+    float outlineOpacity;
+    float fillOpacity;
+    UINT showFill;
+    float alignPad[2];
+    float color[3];
+    float padding;
+};
+static_assert(sizeof(PlayerDiagnosticConstants) == 48);
+
 const char kMaskPixelShaderSource[] = R"(
 float4 main() : SV_Target {
     return float4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -1115,17 +1128,117 @@ void LiveAllyOutline::Reset() noexcept {
     std::lock_guard<std::recursive_mutex> lock(renderMutex_);
     outline_.Reset();
     mask_.Reset(); scene_.Reset(); sceneCopy_.Reset();
-    localMask_.Reset(); localTarget_.Reset(); localView_.Reset(); localCaptures_ = 0;
+    localMask_.Reset(); localTarget_.Reset(); localView_.Reset(); localCaptures_ = lastLocalCaptures_ = 0;
     persistentSceneCopy_.Reset(); persistentSceneView_.Reset();
     ++generation_;
     maskTarget_.Reset(); maskView_.Reset(); sceneView_.Reset();
     captureShader_.Reset(); captureReversed_.Reset(); captureDepth_.Reset(); overwrite_.Reset();
     markerVertexShader_.Reset(); markerPixelShader_.Reset(); markerConstantBuffer_.Reset();
     markerBlendState_.Reset(); markerDepthState_.Reset(); markerRaster_.Reset();
+    playerVertexShader_.Reset(); playerPixelShader_.Reset(); playerConstantBuffer_.Reset();
+    playerBlendState_.Reset(); playerDepthState_.Reset(); playerRaster_.Reset();
     device_.Reset(); width_ = height_ = captures_ = 0;
     sceneFrozen_ = mixedScene_ = false;
     for (auto& clear : depthClears_) clear.texture.Reset();
     nextClear_ = 0;
+}
+
+HRESULT LiveAllyOutline::EnsureInitialized(ID3D11Device* device, UINT width, UINT height) noexcept {
+    std::lock_guard<std::recursive_mutex> lock(renderMutex_);
+    if (!device || width == 0 || height == 0) return E_INVALIDARG;
+    if (device_.Get() == device && width_ == width && height_ == height && mask_) return S_OK;
+    return Initialize(device, width, height);
+}
+
+HRESULT LiveAllyOutline::RenderPlayerDiagnostic(ID3D11DeviceContext* context,
+                                                ID3D11RenderTargetView* targetRTV,
+                                                bool fillSilhouette,
+                                                float thickness) noexcept {
+    if (!context || !targetRTV || !localView_ || localCaptures_ == 0 ||
+        !playerVertexShader_ || !playerPixelShader_ || !playerConstantBuffer_) {
+        return S_FALSE;
+    }
+
+    PlayerDiagnosticConstants cb{};
+    cb.width = width_;
+    cb.height = height_;
+    cb.thickness = std::clamp(std::isfinite(thickness) ? thickness : 2.0f, 1.0f, 4.0f);
+    cb.outlineOpacity = 0.95f;
+    cb.fillOpacity = 0.35f;
+    (void)fillSilhouette;
+    cb.showFill = 1u;
+    // Magenta is deliberately distinct from the ash-white ally marker.
+    cb.color[0] = 1.0f;
+    cb.color[1] = 0.08f;
+    cb.color[2] = 0.90f;
+
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (FAILED(context->Map(playerConstantBuffer_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+        return E_FAIL;
+    }
+    std::memcpy(mapped.pData, &cb, sizeof(cb));
+    context->Unmap(playerConstantBuffer_.Get(), 0);
+
+    ComPtr<ID3D11RenderTargetView> prevRtv;
+    ComPtr<ID3D11DepthStencilView> prevDsv;
+    context->OMGetRenderTargets(1, &prevRtv, &prevDsv);
+
+    ComPtr<ID3D11BlendState> prevBlend;
+    FLOAT prevBlendFactor[4]{};
+    UINT prevSampleMask = 0;
+    context->OMGetBlendState(&prevBlend, prevBlendFactor, &prevSampleMask);
+
+    ComPtr<ID3D11DepthStencilState> prevDepth;
+    UINT prevStencilRef = 0;
+    context->OMGetDepthStencilState(&prevDepth, &prevStencilRef);
+
+    ComPtr<ID3D11RasterizerState> prevRaster;
+    context->RSGetState(&prevRaster);
+    UINT viewportCount = 1;
+    D3D11_VIEWPORT prevViewport{};
+    context->RSGetViewports(&viewportCount, &prevViewport);
+
+    ComPtr<ID3D11VertexShader> prevVS;
+    ComPtr<ID3D11PixelShader> prevPS;
+    context->VSGetShader(&prevVS, nullptr, nullptr);
+    context->PSGetShader(&prevPS, nullptr, nullptr);
+    ComPtr<ID3D11Buffer> prevPsCb;
+    context->PSGetConstantBuffers(0, 1, &prevPsCb);
+    ComPtr<ID3D11ShaderResourceView> prevPsSrv;
+    context->PSGetShaderResources(0, 1, &prevPsSrv);
+    D3D11_PRIMITIVE_TOPOLOGY prevTopology{};
+    context->IAGetPrimitiveTopology(&prevTopology);
+
+    D3D11_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(width_), static_cast<float>(height_), 0.0f, 1.0f};
+    context->RSSetViewports(1, &viewport);
+    context->RSSetState(playerRaster_.Get());
+    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    context->VSSetShader(playerVertexShader_.Get(), nullptr, 0);
+    context->PSSetShader(playerPixelShader_.Get(), nullptr, 0);
+    ID3D11Buffer* cbBuffer = playerConstantBuffer_.Get();
+    context->PSSetConstantBuffers(0, 1, &cbBuffer);
+    ID3D11ShaderResourceView* localSrv = localView_.Get();
+    context->PSSetShaderResources(0, 1, &localSrv);
+    context->OMSetRenderTargets(1, &targetRTV, nullptr);
+    context->OMSetBlendState(playerBlendState_.Get(), nullptr, 0xffffffff);
+    context->OMSetDepthStencilState(playerDepthState_.Get(), 0);
+    context->Draw(3, 0);
+
+    ID3D11ShaderResourceView* nullSrv = nullptr;
+    context->PSSetShaderResources(0, 1, &nullSrv);
+    context->RSSetViewports(viewportCount, &prevViewport);
+    context->RSSetState(prevRaster.Get());
+    context->IASetPrimitiveTopology(prevTopology);
+    context->VSSetShader(prevVS.Get(), nullptr, 0);
+    context->PSSetShader(prevPS.Get(), nullptr, 0);
+    ID3D11Buffer* prevCb = prevPsCb.Get();
+    context->PSSetConstantBuffers(0, 1, &prevCb);
+    ID3D11ShaderResourceView* prevSrv = prevPsSrv.Get();
+    context->PSSetShaderResources(0, 1, &prevSrv);
+    context->OMSetRenderTargets(1, &prevRtv, prevDsv.Get());
+    context->OMSetBlendState(prevBlend.Get(), prevBlendFactor, prevSampleMask);
+    context->OMSetDepthStencilState(prevDepth.Get(), prevStencilRef);
+    return S_OK;
 }
 
 HRESULT LiveAllyOutline::Initialize(ID3D11Device* device, UINT width, UINT height) noexcept {
@@ -1247,6 +1360,102 @@ HRESULT LiveAllyOutline::Initialize(ID3D11Device* device, UINT width, UINT heigh
         markerRast.CullMode = D3D11_CULL_NONE;
         markerRast.DepthClipEnable = TRUE;
         hr = device->CreateRasterizerState(&markerRast, &markerRaster_);
+        if (FAILED(hr)) return hr;
+
+        // Diagnostic shader: display the local player's actual captured
+        // render silhouette, with a visible edge so marker overlap can be
+        // inspected without relying on the collision capsule.
+        static const char kPlayerDebugPS[] = R"(
+Texture2D<float2> LocalMask : register(t0);
+cbuffer PlayerDiagnostic : register(b0) {
+    uint2 Dimensions;
+    float Thickness;
+    float OutlineOpacity;
+    float FillOpacity;
+    uint ShowFill;
+    float2 AlignPad;
+    float3 DebugColor;
+    float Padding;
+};
+
+bool OnScreen(int2 p) { return all(p >= 0) && all(p < int2(Dimensions)); }
+float Coverage(int2 p) {
+    if (!OnScreen(p)) return 0.0f;
+    return saturate(LocalMask.Load(int3(p, 0)).x);
+}
+
+float4 main(float4 position : SV_Position) : SV_Target {
+    int2 p = int2(position.xy);
+    float localCov = Coverage(p);
+
+    const int2 directions[8] = {
+        int2(1, 0), int2(-1, 0), int2(0, 1), int2(0, -1),
+        int2(1, 1), int2(-1, 1), int2(1, -1), int2(-1, -1)
+    };
+    float edge = 0.0f;
+    [loop] for (int radius = 1; radius <= 6; ++radius) {
+        [unroll] for (int i = 0; i < 8; ++i) {
+            float distance = radius * (i < 4 ? 1.0f : 1.41421356f);
+            float falloff = 1.0f - smoothstep(Thickness, Thickness + 1.25f, distance);
+            if (falloff > 0.0f) {
+                float neighborCov = Coverage(p + radius * directions[i]);
+                edge = max(edge, abs(localCov - neighborCov) * falloff);
+            }
+        }
+    }
+
+    float alpha = edge * OutlineOpacity;
+    if (ShowFill != 0 && localCov > 0.0f) {
+        alpha = max(alpha, FillOpacity);
+    }
+    if (alpha <= 0.005f) discard;
+    return float4(DebugColor * alpha, alpha);
+}
+)";
+
+        ComPtr<ID3DBlob> playerPsBlob, playerErrBlob;
+        hr = D3DCompile(kMarkerVS, strlen(kMarkerVS), nullptr, nullptr, nullptr,
+                        "main", "vs_5_0", 0, 0, &vsBlob, &errBlob);
+        if (FAILED(hr)) return hr;
+        hr = device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(),
+                                        nullptr, &playerVertexShader_);
+        if (FAILED(hr)) return hr;
+        hr = D3DCompile(kPlayerDebugPS, strlen(kPlayerDebugPS), nullptr, nullptr, nullptr,
+                        "main", "ps_5_0", 0, 0, &playerPsBlob, &playerErrBlob);
+        if (FAILED(hr)) return hr;
+        hr = device->CreatePixelShader(playerPsBlob->GetBufferPointer(), playerPsBlob->GetBufferSize(),
+                                       nullptr, &playerPixelShader_);
+        if (FAILED(hr)) return hr;
+
+        D3D11_BUFFER_DESC playerCb{};
+        playerCb.ByteWidth = sizeof(PlayerDiagnosticConstants);
+        playerCb.Usage = D3D11_USAGE_DYNAMIC;
+        playerCb.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        playerCb.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        hr = device->CreateBuffer(&playerCb, nullptr, &playerConstantBuffer_);
+        if (FAILED(hr)) return hr;
+
+        D3D11_BLEND_DESC playerBlend{};
+        auto& pb = playerBlend.RenderTarget[0];
+        pb.BlendEnable = TRUE;
+        pb.SrcBlend = D3D11_BLEND_ONE;
+        pb.DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+        pb.BlendOp = D3D11_BLEND_OP_ADD;
+        pb.SrcBlendAlpha = D3D11_BLEND_ZERO;
+        pb.DestBlendAlpha = D3D11_BLEND_ONE;
+        pb.BlendOpAlpha = D3D11_BLEND_OP_ADD;
+        pb.RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+        hr = device->CreateBlendState(&playerBlend, &playerBlendState_);
+        if (FAILED(hr)) return hr;
+
+        D3D11_DEPTH_STENCIL_DESC playerDepth{};
+        playerDepth.DepthEnable = FALSE;
+        playerDepth.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+        playerDepth.DepthFunc = D3D11_COMPARISON_ALWAYS;
+        hr = device->CreateDepthStencilState(&playerDepth, &playerDepthState_);
+        if (FAILED(hr)) return hr;
+
+        hr = device->CreateRasterizerState(&markerRast, &playerRaster_);
         if (FAILED(hr)) return hr;
 
         ComPtr<ID3D11DeviceContext> immediate; device->GetImmediateContext(&immediate);
@@ -1480,6 +1689,7 @@ bool LiveAllyOutline::Executed(ID3D11CommandList* list) noexcept {
 
 void LiveAllyOutline::EndFrame() noexcept {
     lastCaptures_ = captures_;
+    lastLocalCaptures_ = localCaptures_;
     captures_ = localCaptures_ = 0; sceneFrozen_ = mixedScene_ = false; scene_.Reset(); ++frame_;
     // Snapshots can be owned by reusable command lists: never overwrite them.
     sceneCopy_.Reset(); sceneView_.Reset();
@@ -1550,7 +1760,7 @@ void LiveAllyOutline::RenderFallbackMarkers(ID3D11DeviceContext* context, ID3D11
     }
 }
 
-HRESULT LiveAllyOutline::Present(IDXGISwapChain* swap, bool enabled, bool showMask, float thickness, bool visibleOutline, bool fillSilhouette, float fillOpacity, bool fallbackMarkers) noexcept {
+HRESULT LiveAllyOutline::Present(IDXGISwapChain* swap, bool enabled, bool showMask, float thickness, bool visibleOutline, bool fillSilhouette, float fillOpacity, bool fallbackMarkers, bool playerOutline) noexcept {
     std::lock_guard<std::recursive_mutex> lock(renderMutex_);
     struct FrameGuard { LiveAllyOutline* self; ~FrameGuard() { self->EndFrame(); } } guard{this};
     if (!swap) return E_INVALIDARG;
@@ -1565,6 +1775,23 @@ HRESULT LiveAllyOutline::Present(IDXGISwapChain* swap, bool enabled, bool showMa
     ComPtr<ID3D11DeviceContext> context; device->GetImmediateContext(&context);
     Unpredicated unpredicated(context.Get());
     hr = S_FALSE;
+
+    if (playerOutline && localCaptures_ && localView_) {
+        D3D11_RENDER_TARGET_VIEW_DESC view{};
+        view.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+        view.Format = desc.Format;
+        if (view.Format == DXGI_FORMAT_R8G8B8A8_UNORM) view.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+        if (view.Format == DXGI_FORMAT_B8G8R8A8_UNORM) view.Format = DXGI_FORMAT_B8G8R8A8_UNORM_SRGB;
+        ComPtr<ID3D11RenderTargetView> target;
+        hr = device->CreateRenderTargetView(backbuffer.Get(), &view, &target);
+        if (FAILED(hr)) {
+            hr = device->CreateRenderTargetView(backbuffer.Get(), nullptr, &target);
+        }
+        if (SUCCEEDED(hr)) {
+            hr = RenderPlayerDiagnostic(context.Get(), target.Get(), true, thickness);
+        }
+    }
+
     if (enabled && !mixedScene_ && captures_ && scene_ && SUCCEEDED(PrepareSceneCopy(scene_.Get()))) {
         if (!sceneFrozen_) context->CopyResource(sceneCopy_.Get(), scene_.Get());
         D3D11_RENDER_TARGET_VIEW_DESC view{};
@@ -1579,7 +1806,8 @@ HRESULT LiveAllyOutline::Present(IDXGISwapChain* swap, bool enabled, bool showMa
         }
         if (SUCCEEDED(hr)) {
             OutlineFrame frame{maskView_.Get(), sceneView_.Get(), target.Get(), frame_, frame_, frame_,
-                true, true, reversed_, false, visibleOutline, showMask, thickness, fillSilhouette, fillOpacity, true, localCaptures_ ? localView_.Get() : nullptr};
+                true, true, reversed_, false, visibleOutline, showMask, thickness, fillSilhouette, fillOpacity, true,
+                playerOutline ? nullptr : (localCaptures_ ? localView_.Get() : nullptr)};
             hr = outline_.Draw(context.Get(), frame);
         }
     } else if (enabled && fallbackMarkers && captures_ == 0 && ActorTracker::Instance().HasAllies() && !ActorTracker::Instance().IsGameMenuOpen()) {

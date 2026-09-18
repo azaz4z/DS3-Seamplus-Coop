@@ -24,7 +24,7 @@ def main():
     print("Compiling ally_outline_test.exe...")
     cmd = (
         f'"{vcvars}" && cd /d "{out_dir}" && '
-        f'cl.exe /nologo /std:c++20 /EHsc /W4 /O2 /utf-8 /permissive- /MT '
+        f'cl.exe /nologo /std:c++20 /EHsc /W4 /O2 /utf-8 /permissive- /MT /DDS3SC_STANDALONE_TEST '
         f'"{test_src}" "{outline_src}" "{actor_tracker_src}" /Fe:ally_outline_test.exe '
         f'/link d3d11.lib dxgi.lib d3dcompiler.lib User32.lib'
     )
@@ -42,7 +42,7 @@ def main():
     print("Compiling ally_outline_renderer_test.exe...")
     cmd_renderer = (
         f'"{vcvars}" && cd /d "{out_dir}" && '
-        f'cl.exe /nologo /std:c++20 /EHsc /W4 /O2 /utf-8 /permissive- /MT '
+        f'cl.exe /nologo /std:c++20 /EHsc /W4 /O2 /utf-8 /permissive- /MT /DDS3SC_STANDALONE_TEST '
         f'"{renderer_test_src}" "{outline_src}" "{actor_tracker_src}" /Fe:ally_outline_renderer_test.exe '
         f'/link d3d11.lib dxgi.lib d3dcompiler.lib User32.lib'
     )
@@ -62,7 +62,7 @@ def main():
         sys.exit(1)
 
     live_cmd = (f'"{vcvars}" && cd /d "{out_dir}" && '
-                f'cl /nologo /std:c++20 /O2 /EHsc /W4 /WX /MT /utf-8 '
+                f'cl /nologo /std:c++20 /O2 /EHsc /W4 /WX /MT /utf-8 /DDS3SC_STANDALONE_TEST '
                 f'"{ROOT / "tests/live_outline_test.cpp"}" "{outline_src}" "{actor_tracker_src}" '
                 '/Fe:live_outline_test.exe /link d3d11.lib dxgi.lib d3dcompiler.lib User32.lib')
     subprocess.run(live_cmd, shell=True, check=True)
@@ -83,7 +83,7 @@ def main():
         ["buffer.obj", "hook.obj", "trampoline.obj", "hde64.obj"]]
     hook_args = " ".join(f'"{path}"' for path in hook_files)
     hook_cmd = (f'"{vcvars}" && cd /d "{out_dir}" && '
-                f'cl /nologo /std:c++20 /O2 /EHsc /W4 /WX /MT /utf-8 {hook_args} '
+                f'cl /nologo /std:c++20 /O2 /EHsc /W4 /WX /MT /utf-8 /DDS3SC_STANDALONE_TEST /DDS3SC_HAS_D3D11_HOOK {hook_args} '
                 '/Fe:d3d11_hook_test.exe /link d3d11.lib dxgi.lib d3dcompiler.lib User32.lib')
     subprocess.run(hook_cmd, shell=True, check=True)
     subprocess.run([str(out_dir / "d3d11_hook_test.exe")], timeout=30, check=True)

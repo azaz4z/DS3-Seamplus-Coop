@@ -71,7 +71,7 @@ int main() {
         *reinterpret_cast<float*>(&entity[0x170]) = 0.0f;
         MakeAllyPersistentlyVisible(reinterpret_cast<std::uintptr_t>(entity.data()));
         Check((entity[0xc3c] & 1) == 1, "MakeAllyPersistentlyVisible failed to set CPU visibility");
-        Check(entity[0xa5d] == 0, "MakeAllyPersistentlyVisible failed to clear wall occlusion");
+        Check(entity[0xa5d] == 0x01, "MakeAllyPersistentlyVisible must preserve wall occlusion");
         Check(*reinterpret_cast<float*>(&entity[0x170]) >= 1.0f, "MakeAllyPersistentlyVisible failed to restore fade");
         bool allDrawGroupsSet = true;
         for (std::size_t i = 0x88; i < 0x88 + 32; ++i) {
