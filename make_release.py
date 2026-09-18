@@ -57,6 +57,13 @@ MODULES = [
         default=True
     ),
     ReleaseModule(
+        id="player_outline",
+        name="Player Outline & Silhouette (D3D11)",
+        category="Native C++ Extension (Render/Diagnostics)",
+        description="Shows the local player's captured render silhouette and contour to diagnose marker occlusion and hitbox alignment.",
+        default=False
+    ),
+    ReleaseModule(
         id="ally_markers",
         name="Ally Diamond Markers (D3D11)",
         category="Native C++ Extension (Visual/HUD)",
@@ -82,6 +89,13 @@ MODULES = [
         name="Stat Counters Module (Deaths, Kills, Backstabs)",
         category="Native C++ Extension (HUD/Stats)",
         description="Death counter, enemy kills, backstabs dealt and taken with onscreen D3D11 HUD and persistence.",
+        default=True
+    ),
+    ReleaseModule(
+        id="fps_unlock",
+        name="FPS Unlocker (Uncap 60 FPS)",
+        category="Native C++ Extension (Performance)",
+        description="Unlocks Dark Souls III's native 60 FPS cap with configurable target framerate (144, 165, 240+ FPS) and optional VSync control.",
         default=True
     ),
 ]
@@ -185,11 +199,13 @@ def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_
     log_fn("=" * 65)
 
     has_native_extensions = (selected_modules.get("ally_outline", False) or
+                            selected_modules.get("player_outline", False) or
                             selected_modules.get("ally_markers", False) or
                             selected_modules.get("companion_spawner", False) or
                             selected_modules.get("hit_sync", False) or
                             selected_modules.get("counters", False) or
-                            selected_modules.get("contadores", False))
+                            selected_modules.get("contadores", False) or
+                            selected_modules.get("fps_unlock", False))
     greatwood_enabled = selected_modules.get("greatwood_patch", False)
     bonfire_enabled = selected_modules.get("guest_bonfires", False)
 
@@ -201,6 +217,11 @@ def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_
             build_cmd.append("--with-ally-outline")
         else:
             build_cmd.append("--without-ally-outline")
+
+        if selected_modules.get("player_outline", False):
+            build_cmd.append("--with-player-outline")
+        else:
+            build_cmd.append("--without-player-outline")
 
         if selected_modules.get("ally_markers", False):
             build_cmd.append("--with-ally-markers")
@@ -221,6 +242,11 @@ def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_
             build_cmd.append("--with-counters")
         else:
             build_cmd.append("--without-counters")
+
+        if selected_modules.get("fps_unlock", False):
+            build_cmd.append("--with-fps-unlock")
+        else:
+            build_cmd.append("--without-fps-unlock")
 
         build_proc = subprocess.run(build_cmd, cwd=ROOT, capture_output=True, text=True)
         if build_proc.returncode != 0:

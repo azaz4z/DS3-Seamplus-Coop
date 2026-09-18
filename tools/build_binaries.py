@@ -22,16 +22,22 @@ def parse_args():
             print(f"[Build Warning] Could not parse build_config.json: {e}")
 
     default_outline = cfg.get("ally_outline", True)
+    default_player_outline = cfg.get("player_outline", False)
     default_markers = cfg.get("ally_markers", True)
     default_companion = cfg.get("companion_spawner", True)
     default_hit_sync = cfg.get("hit_sync", True)
     default_counters = cfg.get("counters", True)
+    default_fps_unlock = cfg.get("fps_unlock", True)
 
     parser = argparse.ArgumentParser(description="DS3 Seamless Co-op Binary Builder")
     parser.add_argument("--with-ally-outline", dest="ally_outline", action="store_true", default=default_outline,
                         help="Include D3D11 ally outline extension")
     parser.add_argument("--without-ally-outline", dest="ally_outline", action="store_false",
                         help="Exclude D3D11 ally outline extension")
+    parser.add_argument("--with-player-outline", dest="player_outline", action="store_true", default=default_player_outline,
+                        help="Include local player outline and silhouette diagnostics")
+    parser.add_argument("--without-player-outline", dest="player_outline", action="store_false",
+                        help="Exclude local player outline and silhouette diagnostics")
     parser.add_argument("--with-companion", dest="companion", action="store_true", default=default_companion,
                         help="Include companion spawner extension (ash stone)")
     parser.add_argument("--without-companion", dest="companion", action="store_false",
@@ -48,6 +54,10 @@ def parse_args():
                         help="Include ally diamond position markers")
     parser.add_argument("--without-ally-markers", "--without-markers", dest="ally_markers", action="store_false",
                         help="Exclude ally diamond position markers")
+    parser.add_argument("--with-fps-unlock", "--with-fps", dest="fps_unlock", action="store_true", default=default_fps_unlock,
+                        help="Include 60 FPS uncap / framerate unlocker extension")
+    parser.add_argument("--without-fps-unlock", "--without-fps", dest="fps_unlock", action="store_false",
+                        help="Exclude 60 FPS uncap / framerate unlocker extension")
 
     parser.add_argument("--no-companion", dest="legacy_no_companion", action="store_true",
                         help="Alias to exclude companion spawner")
@@ -79,24 +89,33 @@ def setup_msvc_environment() -> str:
 
     vcvars = get_msvc_environment()
     raw = subprocess.check_output(f'call "{vcvars}" > nul && set', shell=True, text=True, errors="replace")
+    # `set` can contain both PATH and Path on the host.  Treat environment
+    # names case-insensitively; otherwise the later stale `Path` entry can
+    # overwrite the toolchain PATH and make cl.exe appear to be missing.
+    msvc_env = {}
     for line in raw.splitlines():
         if "=" in line:
             k, v = line.split("=", 1)
-            os.environ[k] = v
+            msvc_env.setdefault(k.upper(), v)
+    for k, v in msvc_env.items():
+        os.environ[k] = v
+    if "PATH" in msvc_env:
+        os.environ["PATH"] = msvc_env["PATH"]
+        os.environ["Path"] = msvc_env["PATH"]
 
     cl_exe = shutil.which("cl.exe")
     if not cl_exe:
         raise RuntimeError("Could not locate cl.exe after initializing vcvars64.bat.")
     return cl_exe
 
-def build_extensions(cl_exe: str, enable_outline: bool, enable_markers: bool = True, enable_companion: bool = False, enable_hit_sync: bool = True, enable_counters: bool = True, enable_contadores: bool = None, skip_install: bool = False):
+def build_extensions(cl_exe: str, enable_outline: bool, enable_player_outline: bool = False, enable_markers: bool = True, enable_companion: bool = False, enable_hit_sync: bool = True, enable_counters: bool = True, enable_fps_unlock: bool = True, enable_contadores: bool = None, skip_install: bool = False):
     if enable_contadores is not None:
         enable_counters = enable_contadores
 
     comp_out = ROOT / "build/companion"
     comp_out.mkdir(parents=True, exist_ok=True)
 
-    if not enable_outline and not enable_markers and not enable_companion and not enable_hit_sync and not enable_counters:
+    if not enable_outline and not enable_player_outline and not enable_markers and not enable_companion and not enable_hit_sync and not enable_counters and not enable_fps_unlock:
         print("[Modular Build] No native extensions enabled. Skipping ds3sc_companion.dll.")
         # Clean previous DLL if it existed to avoid packaging by mistake
         stale_dll = comp_out / "ds3sc_companion.dll"
@@ -108,16 +127,17 @@ def build_extensions(cl_exe: str, enable_outline: bool, enable_markers: bool = T
     sources = [
         ROOT / "src/extensions/extension_manager.cpp",
         ROOT / "src/extensions/extension_dll_main.cpp",
+        ROOT / "src/network/lan_transport.cpp",
     ]
-    libs = ["Kernel32.lib", "User32.lib", "Gdi32.lib"]
+    libs = ["Kernel32.lib", "User32.lib", "Gdi32.lib", "Ws2_32.lib"]
 
-    needs_d3d11 = enable_outline or enable_markers or enable_counters or enable_companion
-    needs_actor_tracker = enable_outline or enable_markers or needs_d3d11
+    needs_d3d11 = enable_outline or enable_player_outline or enable_markers or enable_counters or enable_companion or enable_fps_unlock
+    needs_actor_tracker = enable_outline or enable_player_outline or enable_markers or enable_counters or enable_companion
 
     if needs_d3d11:
         sources.append(ROOT / "src/render/d3d11_hook.cpp")
         sources.append(ROOT / "src/render/title_menu.cpp")
-        libs.extend(["d3d11.lib", "dxgi.lib", "d3dcompiler.lib"])
+        libs.extend(["d3d11.lib", "dxgi.lib", "d3dcompiler.lib", "dinput8.lib", "dxguid.lib"])
 
         # MinHook cache: only compile if .obj files are missing or older than sources
         minhook = ROOT / "tools/vendor/minhook-1.3.4"
@@ -151,12 +171,22 @@ def build_extensions(cl_exe: str, enable_outline: bool, enable_markers: bool = T
     if needs_actor_tracker:
         sources.append(ROOT / "src/render/actor_tracker.cpp")
 
+    if enable_outline or enable_player_outline:
+        defines.append("/DDS3SC_FEATURE_PLAYER_OUTLINE=1" if enable_player_outline else "/DDS3SC_FEATURE_PLAYER_OUTLINE=0")
+    else:
+        defines.append("/DDS3SC_FEATURE_PLAYER_OUTLINE=0")
+
     if enable_outline:
         defines.append("/DDS3SC_FEATURE_ALLY_OUTLINE=1")
         sources.append(ROOT / "src/extensions/ally_outline/ally_outline_extension.cpp")
-        sources.append(ROOT / "src/render/ally_outline.cpp")
     else:
         defines.append("/DDS3SC_FEATURE_ALLY_OUTLINE=0")
+
+    if enable_outline or enable_player_outline:
+        sources.append(ROOT / "src/render/ally_outline.cpp")
+
+    if enable_player_outline:
+        sources.append(ROOT / "src/extensions/player_outline/player_outline_extension.cpp")
 
     if enable_markers:
         defines.append("/DDS3SC_FEATURE_ALLY_MARKERS=1")
@@ -189,17 +219,25 @@ def build_extensions(cl_exe: str, enable_outline: bool, enable_markers: bool = T
         defines.append("/DDS3SC_FEATURE_CONTADORES=0")
         defines.append("/DDS3SC_FEATURE_COMBAT_STATS=0")
 
+    if enable_fps_unlock:
+        defines.append("/DDS3SC_FEATURE_FPS_UNLOCK=1")
+        sources.append(ROOT / "src/extensions/fps_unlock/fps_unlock_extension.cpp")
+    else:
+        defines.append("/DDS3SC_FEATURE_FPS_UNLOCK=0")
+
     features_str = []
     if enable_outline: features_str.append("Ally Outline")
+    if enable_player_outline: features_str.append("Player Outline & Silhouette")
     if enable_markers: features_str.append("Ally Markers")
     if enable_companion: features_str.append("Companion Spawner")
     if enable_hit_sync: features_str.append("Hit Sync")
     if enable_counters: features_str.append("Stat Counters")
+    if enable_fps_unlock: features_str.append("FPS Unlocker")
     print(f"[Modular Build] Compiling ds3sc_companion.dll with modules: [{', '.join(features_str)}]...")
 
     cmd_comp = [
         cl_exe, "/nologo", "/std:c++20", "/EHsc", "/W4", "/WX", "/O2", "/utf-8",
-        "/permissive-", "/MT", "/Zi", "/LD",
+        "/permissive-", "/MT", "/Zi", "/FS", "/LD",
         *defines,
         *[str(s) for s in sources],
         "/Fe:ds3sc_companion.dll",
@@ -280,7 +318,7 @@ def main():
     cl_exe = setup_msvc_environment()
 
     # Compile modular extensions
-    build_extensions(cl_exe, enable_outline=args.ally_outline, enable_markers=args.ally_markers, enable_companion=args.companion, enable_hit_sync=args.hit_sync, enable_counters=args.counters, skip_install=args.skip_install)
+    build_extensions(cl_exe, enable_outline=args.ally_outline, enable_player_outline=args.player_outline, enable_markers=args.ally_markers, enable_companion=args.companion, enable_hit_sync=args.hit_sync, enable_counters=args.counters, enable_fps_unlock=args.fps_unlock, skip_install=args.skip_install)
 
     # Sync locale files in locale directories
     locale_srcs = [

@@ -2,8 +2,10 @@
   "greatwood_patch": true,
   "guest_bonfires": true,
   "ally_outline": true,
+  "player_outline": true,
   "ally_markers": true,
   "companion_spawner": true,
   "hit_sync": true,
-  "counters": true
+  "counters": true,
+  "fps_unlock": true
 }

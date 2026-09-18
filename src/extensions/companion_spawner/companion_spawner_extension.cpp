@@ -9,7 +9,7 @@
 #include <cstring>
 #include <cmath>
 
-#if defined(DS3SC_FEATURE_ALLY_OUTLINE) && DS3SC_FEATURE_ALLY_OUTLINE
+#if (defined(DS3SC_FEATURE_ALLY_OUTLINE) && DS3SC_FEATURE_ALLY_OUTLINE) || (defined(DS3SC_FEATURE_PLAYER_OUTLINE) && DS3SC_FEATURE_PLAYER_OUTLINE)
 #include "../../render/actor_tracker.h"
 inline void NotifyActorTrackerReset() {
     ds3sc::render::ActorTracker::Instance().SetActiveRenderingActor(0);

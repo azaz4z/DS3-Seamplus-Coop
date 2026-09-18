@@ -7,6 +7,10 @@
 #include "ally_outline/ally_outline_extension.h"
 #endif
 
+#if defined(DS3SC_FEATURE_PLAYER_OUTLINE) && DS3SC_FEATURE_PLAYER_OUTLINE
+#include "player_outline/player_outline_extension.h"
+#endif
+
 #if defined(DS3SC_FEATURE_ALLY_MARKERS) && DS3SC_FEATURE_ALLY_MARKERS
 #include "ally_markers/ally_markers_extension.h"
 #endif
@@ -23,6 +27,10 @@
 #include "counters/counters_extension.h"
 #endif
 
+#if defined(DS3SC_FEATURE_FPS_UNLOCK) && DS3SC_FEATURE_FPS_UNLOCK
+#include "fps_unlock/fps_unlock_extension.h"
+#endif
+
 
 namespace {
 
@@ -31,6 +39,11 @@ DWORD WINAPI ExtensionWorker(void*) {
 #if defined(DS3SC_FEATURE_ALLY_OUTLINE) && DS3SC_FEATURE_ALLY_OUTLINE
     ds3sc::extensions::ExtensionManager::Instance().Register(
         ds3sc::extensions::CreateAllyOutlineExtension());
+#endif
+
+#if defined(DS3SC_FEATURE_PLAYER_OUTLINE) && DS3SC_FEATURE_PLAYER_OUTLINE
+    ds3sc::extensions::ExtensionManager::Instance().Register(
+        ds3sc::extensions::CreatePlayerOutlineExtension());
 #endif
 
 #if defined(DS3SC_FEATURE_ALLY_MARKERS) && DS3SC_FEATURE_ALLY_MARKERS
@@ -51,6 +64,11 @@ DWORD WINAPI ExtensionWorker(void*) {
 #if (defined(DS3SC_FEATURE_COUNTERS) && DS3SC_FEATURE_COUNTERS) || (defined(DS3SC_FEATURE_CONTADORES) && DS3SC_FEATURE_CONTADORES) || (defined(DS3SC_FEATURE_COMBAT_STATS) && DS3SC_FEATURE_COMBAT_STATS)
     ds3sc::extensions::ExtensionManager::Instance().Register(
         ds3sc::extensions::CreateCountersExtension());
+#endif
+
+#if defined(DS3SC_FEATURE_FPS_UNLOCK) && DS3SC_FEATURE_FPS_UNLOCK
+    ds3sc::extensions::ExtensionManager::Instance().Register(
+        ds3sc::extensions::CreateFpsUnlockExtension());
 #endif
 
 
