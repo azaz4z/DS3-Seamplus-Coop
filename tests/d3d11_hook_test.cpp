@@ -1,6 +1,18 @@
 #include "../src/render/d3d11_hook.h"
+#include "../src/render/title_menu.h"
 #include <cstdio>
 #include <wrl/client.h>
+
+namespace ds3sc::render {
+TitleMenu::TitleMenu() = default;
+TitleMenu& TitleMenu::Instance() noexcept {
+    static TitleMenu s;
+    return s;
+}
+HRESULT TitleMenu::Present(IDXGISwapChain*) noexcept { return S_OK; }
+void TitleMenu::Reset() noexcept {}
+}
+
 extern "C" volatile LONG ds3scAllyDeferredDraws, ds3scAllyMatchedDraws;
 
 int main() {

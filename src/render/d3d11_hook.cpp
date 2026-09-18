@@ -1,10 +1,10 @@
 #include "d3d11_hook.h"
-#if defined(DS3SC_FEATURE_ALLY_OUTLINE) && DS3SC_FEATURE_ALLY_OUTLINE
+#if DS3SC_FEATURE_OUTLINE_CAPTURE
 #include "ally_outline.h"
 #include "native_draw_packet.h"
 #include "ally_pass_visibility.h"
 #endif
-#if (defined(DS3SC_FEATURE_ALLY_OUTLINE) && DS3SC_FEATURE_ALLY_OUTLINE) || (defined(DS3SC_FEATURE_ALLY_MARKERS) && DS3SC_FEATURE_ALLY_MARKERS)
+#if DS3SC_FEATURE_OUTLINE_CAPTURE || (defined(DS3SC_FEATURE_ALLY_MARKERS) && DS3SC_FEATURE_ALLY_MARKERS)
 #include "actor_tracker.h"
 #endif
 #if defined(DS3SC_FEATURE_ALLY_MARKERS) && DS3SC_FEATURE_ALLY_MARKERS
@@ -61,7 +61,9 @@ __declspec(dllexport) volatile LONG ds3scOutlineThicknessInt = 20;
 __declspec(dllexport) volatile LONG ds3scOutlineFillSilhouette = 1;
 __declspec(dllexport) volatile LONG ds3scOutlineVisible = 0;
 __declspec(dllexport) volatile LONG ds3scOutlineFallbackMarkers = 1;
+__declspec(dllexport) volatile LONG ds3scPlayerOutlineEnable = 0;
 __declspec(dllexport) volatile LONG ds3scDiamondMarkersEnable = 1;
+__declspec(dllexport) volatile LONG ds3scDisableVsync = 0;
 __declspec(dllexport) volatile LONG ds3scD3D11Hooked = 0;
 __declspec(dllexport) volatile LONG ds3scAllyDrawsCount = 0;
 __declspec(dllexport) volatile LONG ds3scLocalDrawsCount = 0;
@@ -88,12 +90,12 @@ __declspec(dllexport) volatile RenderTrace ds3scRenderTrace{1};
 extern volatile LONG ds3scOutlineCaptureAttempts, ds3scOutlineCaptureRejectReason, ds3scOutlineComposeResult;
 }
 namespace {
-#if defined(DS3SC_FEATURE_ALLY_OUTLINE) && DS3SC_FEATURE_ALLY_OUTLINE
+#if DS3SC_FEATURE_OUTLINE_CAPTURE
 struct AllyScope {
     bool previous = drawingAlly, previousLocal = drawingLocal;
     explicit AllyScope(bool ally, bool local = false) {
-        // An inner packet is its own identity, never its parent's actor.
-        drawingLocal = local; drawingAlly = ally && !local;
+        drawingLocal = local;
+        drawingAlly = ally && !local;
     }
     ~AllyScope() { drawingAlly = previous; drawingLocal = previousLocal; }
 };
@@ -144,7 +146,10 @@ unsigned char TraverserPushBounds(void* traverser, const void* bounds) {
 // to 0x140142efa, bypassing all frustum, portal, and distance culling gates.
 void CollectTraverserAccept(void* traverser, void* entity) {
     const auto address = reinterpret_cast<std::uintptr_t>(entity);
-    if (ActorTracker::Instance().IsDrawEntityTrackedAsAlly(address)) {
+    const bool allyActive = (ds3scOutlineEnable != 0 || ds3scOutlineShowMask != 0 || ds3scDiamondMarkersEnable != 0 || ds3scOutlineFallbackMarkers != 0);
+    const bool isAlly = allyActive && ActorTracker::Instance().IsDrawEntityTrackedAsAlly(address);
+    const bool isLocal = (ds3scPlayerOutlineEnable != 0) && ActorTracker::Instance().IsDrawEntityTrackedAsLocal(address);
+    if (isAlly || isLocal) {
         InterlockedIncrement(&ds3scAllyTraverserCalls);
         auto* const t = reinterpret_cast<std::uint8_t*>(traverser);
         const auto t24Addr = reinterpret_cast<std::uintptr_t>(t + 0x24);
@@ -196,9 +201,11 @@ void Submit(void* iface, void* context, void* resource, void* item, const void* 
     alignas(16) NativeSubmissionOptions individual{};
     const auto ifaceAddr = reinterpret_cast<std::uintptr_t>(iface);
     const bool isAlly = ActorTracker::Instance().IsDrawEntityTrackedAsAlly(ifaceAddr);
-    if ((ds3scOutlineEnable || ds3scOutlineShowMask) &&
-        (isAlly || ActorTracker::Instance().IsDrawEntityTrackedAsLocal(ifaceAddr)) &&
-        IndividualAllySubmission(options, individual)) {
+    const bool isLocal = ActorTracker::Instance().IsDrawEntityTrackedAsLocal(ifaceAddr);
+    const bool allyActive = (ds3scOutlineEnable != 0 || ds3scOutlineShowMask != 0 || ds3scDiamondMarkersEnable != 0 || ds3scOutlineFallbackMarkers != 0);
+    const bool localActive = (ds3scPlayerOutlineEnable != 0 || ds3scDiamondMarkersEnable != 0 || ds3scOutlineFallbackMarkers != 0 || ds3scOutlineEnable != 0);
+    const bool shouldSeparate = (isAlly && allyActive) || (isLocal && localActive);
+    if (shouldSeparate && IndividualAllySubmission(options, individual)) {
         options = individual.data();
         if (isAlly) InterlockedIncrement(&ds3scAllyIndividualSubmissions);
     }
@@ -212,7 +219,7 @@ void Submit(void* iface, void* context, void* resource, void* item, const void* 
 // submits the ally using the active Pass 8 context, guaranteeing continuous,
 // rock-solid outline visibility through walls and at arbitrary distances.
 struct AllyPass8Tracker {
-    static constexpr std::size_t kMaxAllies = 16;
+    static constexpr std::size_t kMaxAllies = 32;
     struct Entry {
         std::atomic<std::uintptr_t> entity{0};
         std::atomic<std::uint64_t> lastFrame{0};
@@ -289,21 +296,25 @@ inline void CallEntityOriginalModel(void* entity, void* context) {
 
 void Model(void* entity, void* context) {
     const auto address = reinterpret_cast<std::uintptr_t>(entity);
-    const bool isAlly = ActorTracker::Instance().IsDrawEntityTrackedAsAlly(address);
+    const bool isLocal = ActorTracker::Instance().IsDrawEntityTrackedAsLocal(address);
+    const bool isAlly = !isLocal && ActorTracker::Instance().IsDrawEntityTrackedAsAlly(address);
     const auto currentFrame = frameNumber.load(std::memory_order_relaxed);
 
-    if (isAlly) {
+    if (isAlly || isLocal) {
         InterlockedIncrement(&ds3scAllyModelCalls);
         ds3scRenderTrace.modelThread = GetCurrentThreadId();
         ds3scRenderTrace.modelEntity = address;
         ds3scRenderTrace.modelContext = reinterpret_cast<std::uintptr_t>(context);
 
-        if (ds3scOutlineEnable || ds3scOutlineShowMask) {
+        const bool allyOutlineActive = (ds3scOutlineEnable != 0 || ds3scOutlineShowMask != 0);
+        const bool playerOutlineActive = (ds3scPlayerOutlineEnable != 0);
+
+        if ((isAlly && allyOutlineActive) || (isLocal && playerOutlineActive)) {
             std::uint32_t pass = 0;
             SafeRead(reinterpret_cast<std::uintptr_t>(context) + 0x124, pass);
 
             if (pass == 8) {
-                // If this ally was already claimed/submitted in Pass 8 for this frame,
+                // If this ally or local entity was already claimed/submitted in Pass 8 for this frame,
                 // do not submit duplicate geometry.
                 if (!g_pass8Tracker.TryClaim(address, currentFrame)) {
                     return;
@@ -311,7 +322,7 @@ void Model(void* entity, void* context) {
             }
 
             std::lock_guard<std::mutex> lock(allyModelMutex);
-            AllyScope allyScope(true);
+            AllyScope allyScope(isAlly, isLocal);
             ScopedAllyModelOverride visibility(address, pass);
             if (visibility.Changed()) InterlockedIncrement(&ds3scAllyOccludedSubmissions);
             originalModel(entity, context);
@@ -322,27 +333,59 @@ void Model(void* entity, void* context) {
         return;
     }
 
-    // entity is NOT an ally
-    if (ds3scOutlineEnable || ds3scOutlineShowMask) {
+    // entity is NOT an ally or local
+    const bool allyOutlineActive = (ds3scOutlineEnable != 0 || ds3scOutlineShowMask != 0);
+    const bool playerOutlineActive = (ds3scPlayerOutlineEnable != 0);
+
+    if (allyOutlineActive || playerOutlineActive) {
         std::uint32_t pass = 0;
         if (SafeRead(reinterpret_cast<std::uintptr_t>(context) + 0x124, pass) && pass == 8) {
-            std::array<std::uintptr_t, ActorTracker::kMaxFastAllies> allies{};
-            const auto allyCount = ActorTracker::Instance().GetFastAllyEntities(allies.data(), allies.size());
+            if (allyOutlineActive) {
+                std::array<std::uintptr_t, ActorTracker::kMaxFastAllies> allies{};
+                const auto allyCount = ActorTracker::Instance().GetFastAllyEntities(allies.data(), allies.size());
 
-            for (std::size_t i = 0; i < allyCount; ++i) {
-                const auto allyAddr = allies[i];
-                if (!allyAddr) continue;
+                for (std::size_t i = 0; i < allyCount; ++i) {
+                    const auto allyAddr = allies[i];
+                    if (!allyAddr) continue;
 
-                if (g_pass8Tracker.TryClaim(allyAddr, currentFrame)) {
+                    if (g_pass8Tracker.TryClaim(allyAddr, currentFrame)) {
+                        std::lock_guard<std::mutex> lock(allyModelMutex);
+                        AllyScope allyScope(true, false);
+                        ScopedAllyModelOverride visibility(allyAddr, 8);
+                        if (visibility.Changed()) InterlockedIncrement(&ds3scAllyOccludedSubmissions);
+                        InterlockedIncrement(&ds3scAllyModelCalls);
+                        ds3scRenderTrace.modelThread = GetCurrentThreadId();
+                        ds3scRenderTrace.modelEntity = allyAddr;
+                        ds3scRenderTrace.modelContext = reinterpret_cast<std::uintptr_t>(context);
+                        CallEntityOriginalModel(reinterpret_cast<void*>(allyAddr), context);
+                    }
+                }
+            }
+
+            if (playerOutlineActive) {
+                const auto localAddr = ActorTracker::Instance().GetFastLocalEntity();
+                if (localAddr && g_pass8Tracker.TryClaim(localAddr, currentFrame)) {
                     std::lock_guard<std::mutex> lock(allyModelMutex);
-                    AllyScope allyScope(true);
-                    ScopedAllyModelOverride visibility(allyAddr, 8);
+                    AllyScope allyScope(false, true);
+                    ScopedAllyModelOverride visibility(localAddr, 8);
                     if (visibility.Changed()) InterlockedIncrement(&ds3scAllyOccludedSubmissions);
                     InterlockedIncrement(&ds3scAllyModelCalls);
                     ds3scRenderTrace.modelThread = GetCurrentThreadId();
-                    ds3scRenderTrace.modelEntity = allyAddr;
+                    ds3scRenderTrace.modelEntity = localAddr;
                     ds3scRenderTrace.modelContext = reinterpret_cast<std::uintptr_t>(context);
-                    CallEntityOriginalModel(reinterpret_cast<void*>(allyAddr), context);
+                    CallEntityOriginalModel(reinterpret_cast<void*>(localAddr), context);
+                }
+                const auto localAsm = ActorTracker::Instance().GetFastLocalAsmEntity();
+                if (localAsm && g_pass8Tracker.TryClaim(localAsm, currentFrame)) {
+                    std::lock_guard<std::mutex> lock(allyModelMutex);
+                    AllyScope allyScope(false, true);
+                    ScopedAllyModelOverride visibility(localAsm, 8);
+                    if (visibility.Changed()) InterlockedIncrement(&ds3scAllyOccludedSubmissions);
+                    InterlockedIncrement(&ds3scAllyModelCalls);
+                    ds3scRenderTrace.modelThread = GetCurrentThreadId();
+                    ds3scRenderTrace.modelEntity = localAsm;
+                    ds3scRenderTrace.modelContext = reinterpret_cast<std::uintptr_t>(context);
+                    CallEntityOriginalModel(reinterpret_cast<void*>(localAsm), context);
                 }
             }
         }
@@ -353,21 +396,25 @@ void Model(void* entity, void* context) {
 
 void AsmModel(void* entity, void* context) {
     const auto address = reinterpret_cast<std::uintptr_t>(entity);
-    const bool isAlly = ActorTracker::Instance().IsDrawEntityTrackedAsAlly(address);
+    const bool isLocal = ActorTracker::Instance().IsDrawEntityTrackedAsLocal(address);
+    const bool isAlly = !isLocal && ActorTracker::Instance().IsDrawEntityTrackedAsAlly(address);
     const auto currentFrame = frameNumber.load(std::memory_order_relaxed);
 
-    if (isAlly) {
+    if (isAlly || isLocal) {
         InterlockedIncrement(&ds3scAllyModelCalls);
         ds3scRenderTrace.modelThread = GetCurrentThreadId();
         ds3scRenderTrace.modelEntity = address;
         ds3scRenderTrace.modelContext = reinterpret_cast<std::uintptr_t>(context);
 
-        if (ds3scOutlineEnable || ds3scOutlineShowMask) {
+        const bool allyOutlineActive = (ds3scOutlineEnable != 0 || ds3scOutlineShowMask != 0);
+        const bool playerOutlineActive = (ds3scPlayerOutlineEnable != 0);
+
+        if ((isAlly && allyOutlineActive) || (isLocal && playerOutlineActive)) {
             std::uint32_t pass = 0;
             SafeRead(reinterpret_cast<std::uintptr_t>(context) + 0x124, pass);
 
             if (pass == 8) {
-                // If this ally was already claimed/submitted in Pass 8 for this frame,
+                // If this ally or local entity was already claimed/submitted in Pass 8 for this frame,
                 // do not submit duplicate geometry.
                 if (!g_pass8Tracker.TryClaim(address, currentFrame)) {
                     return;
@@ -375,7 +422,7 @@ void AsmModel(void* entity, void* context) {
             }
 
             std::lock_guard<std::mutex> lock(allyModelMutex);
-            AllyScope allyScope(true);
+            AllyScope allyScope(isAlly, isLocal);
             ScopedAllyModelOverride visibility(address, pass);
             if (visibility.Changed()) InterlockedIncrement(&ds3scAllyOccludedSubmissions);
             originalAsmModel(entity, context);
@@ -386,27 +433,59 @@ void AsmModel(void* entity, void* context) {
         return;
     }
 
-    // entity is NOT an ally
-    if (ds3scOutlineEnable || ds3scOutlineShowMask) {
+    // entity is NOT an ally or local
+    const bool allyOutlineActive = (ds3scOutlineEnable != 0 || ds3scOutlineShowMask != 0);
+    const bool playerOutlineActive = (ds3scPlayerOutlineEnable != 0);
+
+    if (allyOutlineActive || playerOutlineActive) {
         std::uint32_t pass = 0;
         if (SafeRead(reinterpret_cast<std::uintptr_t>(context) + 0x124, pass) && pass == 8) {
-            std::array<std::uintptr_t, ActorTracker::kMaxFastAllies> allies{};
-            const auto allyCount = ActorTracker::Instance().GetFastAllyEntities(allies.data(), allies.size());
+            if (allyOutlineActive) {
+                std::array<std::uintptr_t, ActorTracker::kMaxFastAllies> allies{};
+                const auto allyCount = ActorTracker::Instance().GetFastAllyEntities(allies.data(), allies.size());
 
-            for (std::size_t i = 0; i < allyCount; ++i) {
-                const auto allyAddr = allies[i];
-                if (!allyAddr) continue;
+                for (std::size_t i = 0; i < allyCount; ++i) {
+                    const auto allyAddr = allies[i];
+                    if (!allyAddr) continue;
 
-                if (g_pass8Tracker.TryClaim(allyAddr, currentFrame)) {
+                    if (g_pass8Tracker.TryClaim(allyAddr, currentFrame)) {
+                        std::lock_guard<std::mutex> lock(allyModelMutex);
+                        AllyScope allyScope(true, false);
+                        ScopedAllyModelOverride visibility(allyAddr, 8);
+                        if (visibility.Changed()) InterlockedIncrement(&ds3scAllyOccludedSubmissions);
+                        InterlockedIncrement(&ds3scAllyModelCalls);
+                        ds3scRenderTrace.modelThread = GetCurrentThreadId();
+                        ds3scRenderTrace.modelEntity = allyAddr;
+                        ds3scRenderTrace.modelContext = reinterpret_cast<std::uintptr_t>(context);
+                        CallEntityOriginalModel(reinterpret_cast<void*>(allyAddr), context);
+                    }
+                }
+            }
+
+            if (playerOutlineActive) {
+                const auto localAddr = ActorTracker::Instance().GetFastLocalEntity();
+                if (localAddr && g_pass8Tracker.TryClaim(localAddr, currentFrame)) {
                     std::lock_guard<std::mutex> lock(allyModelMutex);
-                    AllyScope allyScope(true);
-                    ScopedAllyModelOverride visibility(allyAddr, 8);
+                    AllyScope allyScope(false, true);
+                    ScopedAllyModelOverride visibility(localAddr, 8);
                     if (visibility.Changed()) InterlockedIncrement(&ds3scAllyOccludedSubmissions);
                     InterlockedIncrement(&ds3scAllyModelCalls);
                     ds3scRenderTrace.modelThread = GetCurrentThreadId();
-                    ds3scRenderTrace.modelEntity = allyAddr;
+                    ds3scRenderTrace.modelEntity = localAddr;
                     ds3scRenderTrace.modelContext = reinterpret_cast<std::uintptr_t>(context);
-                    CallEntityOriginalModel(reinterpret_cast<void*>(allyAddr), context);
+                    CallEntityOriginalModel(reinterpret_cast<void*>(localAddr), context);
+                }
+                const auto localAsm = ActorTracker::Instance().GetFastLocalAsmEntity();
+                if (localAsm && g_pass8Tracker.TryClaim(localAsm, currentFrame)) {
+                    std::lock_guard<std::mutex> lock(allyModelMutex);
+                    AllyScope allyScope(false, true);
+                    ScopedAllyModelOverride visibility(localAsm, 8);
+                    if (visibility.Changed()) InterlockedIncrement(&ds3scAllyOccludedSubmissions);
+                    InterlockedIncrement(&ds3scAllyModelCalls);
+                    ds3scRenderTrace.modelThread = GetCurrentThreadId();
+                    ds3scRenderTrace.modelEntity = localAsm;
+                    ds3scRenderTrace.modelContext = reinterpret_cast<std::uintptr_t>(context);
+                    CallEntityOriginalModel(reinterpret_cast<void*>(localAsm), context);
                 }
             }
         }
@@ -419,8 +498,9 @@ void Dispatch(void* iface, void* context, void* cmd, void* arg4) {
     // The dispatch interface is per instance, including the alternate command
     // pair. Shared FLVER resources and arbitrary cmd offsets are not identity.
     const auto ifaceAddr = reinterpret_cast<std::uintptr_t>(iface);
-    const bool ally = ActorTracker::Instance().IsDrawEntityTrackedAsAlly(ifaceAddr);
-    AllyScope scope(ally, ActorTracker::Instance().IsDrawEntityTrackedAsLocal(ifaceAddr));
+    const bool isLocal = ActorTracker::Instance().IsDrawEntityTrackedAsLocal(ifaceAddr);
+    const bool ally = !isLocal && ActorTracker::Instance().IsDrawEntityTrackedAsAlly(ifaceAddr);
+    AllyScope scope(ally, isLocal);
     if (ally) {
         InterlockedIncrement(&ds3scAllyDispatchCalls);
         ds3scAllyExecuteThread = GetCurrentThreadId();
@@ -432,15 +512,25 @@ void Packet(void* context, void* model, void* material, void* packet, void* para
     InterlockedIncrement(&ds3scAllyPacketCalls);
     const auto address = reinterpret_cast<std::uintptr_t>(packet);
     const auto entity = PacketDrawEntity(address);
-    const bool ally = ActorTracker::Instance().IsDrawEntityTrackedAsAlly(entity);
-    AllyScope scope(ally, ActorTracker::Instance().IsDrawEntityTrackedAsLocal(entity));
-    if (ally) {
-        ds3scAllyLastPacket = address;
-        ds3scAllyLastPacketEntity = entity;
-        InterlockedIncrement(&ds3scAllyExecuteCalls);
-        ds3scAllyExecuteThread = GetCurrentThreadId();
+    if (entity != 0) {
+        const bool isLocal = ActorTracker::Instance().IsDrawEntityTrackedAsLocal(entity);
+        const bool ally = !isLocal && ActorTracker::Instance().IsDrawEntityTrackedAsAlly(entity);
+        AllyScope scope(ally, isLocal);
+        if (ally) {
+            ds3scAllyLastPacket = address;
+            ds3scAllyLastPacketEntity = entity;
+            InterlockedIncrement(&ds3scAllyExecuteCalls);
+            ds3scAllyExecuteThread = GetCurrentThreadId();
+        }
+        originalPacket(context, model, material, packet, parameters);
+    } else {
+        if (drawingAlly) {
+            ds3scAllyLastPacket = address;
+            InterlockedIncrement(&ds3scAllyExecuteCalls);
+            ds3scAllyExecuteThread = GetCurrentThreadId();
+        }
+        originalPacket(context, model, material, packet, parameters);
     }
-    originalPacket(context, model, material, packet, parameters);
 }
 
 void Trace() {
@@ -455,10 +545,18 @@ void Trace() {
 }
 
 void Capture(ID3D11DeviceContext* ctx, const ReplayDrawParams& params, void* original) {
-    if (replaying || (!ds3scOutlineEnable && !ds3scOutlineShowMask)) return;
-    if (!drawingAlly && !drawingLocal) return;
-    replaying = true;
+    if (replaying) return;
     if (drawingAlly && Kind(ctx)) InterlockedIncrement(&ds3scAllyDeferredDraws);
+
+    const bool allyOutlineActive = (ds3scOutlineEnable != 0 || ds3scOutlineShowMask != 0);
+    const bool playerOutlineActive = (ds3scPlayerOutlineEnable != 0);
+    const bool markersActive = (ds3scDiamondMarkersEnable != 0 || ds3scOutlineFallbackMarkers != 0);
+
+    if (drawingAlly && !allyOutlineActive) return;
+    if (drawingLocal && !playerOutlineActive && !markersActive && !allyOutlineActive) return;
+    if (!drawingAlly && !drawingLocal) return;
+
+    replaying = true;
     if (LiveAllyOutline::Instance().Capture(ctx, params, original, drawingLocal)) {
         if (drawingLocal) InterlockedIncrement(&ds3scLocalDrawsCount);
         else InterlockedIncrement(&ds3scAllyDrawsCount);
@@ -503,27 +601,25 @@ void STDMETHODCALLTYPE Execute(ID3D11DeviceContext* ctx, ID3D11CommandList* list
     originalExecute(ctx, list, restore);
     if (LiveAllyOutline::Instance().Executed(list)) InterlockedIncrement(&ds3scAllyCommandLists);
 }
-#endif // DS3SC_FEATURE_ALLY_OUTLINE
+#endif // DS3SC_FEATURE_OUTLINE_CAPTURE
 
 void Log() {
-    // Avoid synchronous disk I/O on the D3D11 presentation thread to prevent microstutters
-#if defined(_DEBUG)
     const auto now = GetTickCount64();
-    if (now - lastLog < 5000) return;
+    if (now - lastLog < 3000) return;
     lastLog = now;
-    if (IsDebuggerPresent()) {
-        char line[256]{};
-        std::snprintf(line, sizeof(line), "[d3d11_hook] frame=%llu allies=%zu draws=%ld\n",
-            static_cast<unsigned long long>(frameNumber.load(std::memory_order_relaxed)),
-#if (defined(DS3SC_FEATURE_ALLY_OUTLINE) && DS3SC_FEATURE_ALLY_OUTLINE) || (defined(DS3SC_FEATURE_ALLY_MARKERS) && DS3SC_FEATURE_ALLY_MARKERS)
-            ActorTracker::Instance().GetAllyCount(),
+    char line[256]{};
+    std::snprintf(line, sizeof(line),
+        "[ds3sc_render] frame=%llu playerOutline=%ld localDraws=%ld allyDraws=%ld localCaptures=%u\n",
+        static_cast<unsigned long long>(frameNumber.load(std::memory_order_relaxed)),
+        ds3scPlayerOutlineEnable,
+        ds3scLocalDrawsCount,
+        ds3scAllyDrawsCount,
+#if DS3SC_FEATURE_OUTLINE_CAPTURE
+        LiveAllyOutline::Instance().GetLocalCaptures());
 #else
-            static_cast<std::size_t>(0),
+        0u);
 #endif
-            ds3scAllyMatchedDraws);
-        OutputDebugStringA(line);
-    }
-#endif
+    OutputDebugStringA(line);
 }
 HRESULT STDMETHODCALLTYPE Present(IDXGISwapChain* swap, UINT sync, UINT flags) {
     if (flags & DXGI_PRESENT_TEST) return originalPresent(swap, sync, flags);
@@ -538,19 +634,22 @@ HRESULT STDMETHODCALLTYPE Present(IDXGISwapChain* swap, UINT sync, UINT flags) {
             for (int i=0;i<4;++i) ds3scRenderTrace.actualTargets[i] = reinterpret_cast<std::uintptr_t>(table[slots[i]]);
         }
     }
-#if (defined(DS3SC_FEATURE_ALLY_OUTLINE) && DS3SC_FEATURE_ALLY_OUTLINE) || (defined(DS3SC_FEATURE_ALLY_MARKERS) && DS3SC_FEATURE_ALLY_MARKERS)
+#if DS3SC_FEATURE_OUTLINE_CAPTURE || (defined(DS3SC_FEATURE_ALLY_MARKERS) && DS3SC_FEATURE_ALLY_MARKERS)
     ActorTracker::Instance().Update(currentFrame);
 #else
     (void)currentFrame;
 #endif
 
-#if defined(DS3SC_FEATURE_ALLY_OUTLINE) && DS3SC_FEATURE_ALLY_OUTLINE
-    LiveAllyOutline::Instance().Present(swap, ds3scOutlineEnable || ds3scOutlineShowMask,
-        ds3scOutlineShowMask != 0, ds3scOutlineThicknessInt / 10.0f, ds3scOutlineVisible != 0, ds3scOutlineFillSilhouette != 0, .30f);
-#endif
-
 #if defined(DS3SC_FEATURE_ALLY_MARKERS) && DS3SC_FEATURE_ALLY_MARKERS
     LiveAllyMarkers::Instance().Present(swap, ds3scDiamondMarkersEnable != 0 || ds3scOutlineFallbackMarkers != 0);
+#endif
+
+#if DS3SC_FEATURE_OUTLINE_CAPTURE
+    const bool allyOutlineActive = (ds3scOutlineEnable != 0 || ds3scOutlineShowMask != 0);
+    LiveAllyOutline::Instance().Present(swap, allyOutlineActive,
+        ds3scOutlineShowMask != 0, ds3scOutlineThicknessInt / 10.0f, ds3scOutlineVisible != 0,
+        ds3scOutlineFillSilhouette != 0, .30f, true, ds3scPlayerOutlineEnable != 0);
+    g_pass8Tracker.Reset();
 #endif
 
 #if (defined(DS3SC_FEATURE_CONTADORES) && DS3SC_FEATURE_CONTADORES) || (defined(DS3SC_FEATURE_COMBAT_STATS) && DS3SC_FEATURE_COMBAT_STATS) || (defined(DS3SC_FEATURE_COUNTERS) && DS3SC_FEATURE_COUNTERS)
@@ -558,10 +657,13 @@ HRESULT STDMETHODCALLTYPE Present(IDXGISwapChain* swap, UINT sync, UINT flags) {
 #endif
     TitleMenu::Instance().Present(swap);
     Log();
+    if (ds3scDisableVsync != 0) {
+        sync = 0;
+    }
     return originalPresent(swap, sync, flags);
 }
 HRESULT STDMETHODCALLTYPE Resize(IDXGISwapChain* swap, UINT count, UINT width, UINT height, DXGI_FORMAT format, UINT flags) {
-#if defined(DS3SC_FEATURE_ALLY_OUTLINE) && DS3SC_FEATURE_ALLY_OUTLINE
+#if DS3SC_FEATURE_OUTLINE_CAPTURE
     LiveAllyOutline::Instance().Reset();
     g_pass8Tracker.Reset();
 #endif
@@ -604,7 +706,7 @@ bool D3D11HookManager::Install() noexcept {
     std::vector<Hook> hooks{
         {table[8],reinterpret_cast<void*>(&Present),reinterpret_cast<void**>(&originalPresent)},
         {table[13],reinterpret_cast<void*>(&Resize),reinterpret_cast<void**>(&originalResize)}};
-#if defined(DS3SC_FEATURE_ALLY_OUTLINE) && DS3SC_FEATURE_ALLY_OUTLINE
+#if DS3SC_FEATURE_OUTLINE_CAPTURE
     for (int k=0;k<2;++k) {
         table = *reinterpret_cast<void***>(contexts[k].Get());
         hooks.push_back({table[12],reinterpret_cast<void*>(&Indexed),reinterpret_cast<void**>(&originalIndexed[k])});
@@ -680,7 +782,7 @@ void D3D11HookManager::Uninstall() noexcept {
     std::lock_guard<std::mutex> lock(installMutex);
     if (!installed_.load()) return;
     RemoveOwnedHooks();
-#if defined(DS3SC_FEATURE_ALLY_OUTLINE) && DS3SC_FEATURE_ALLY_OUTLINE
+#if DS3SC_FEATURE_OUTLINE_CAPTURE
     LiveAllyOutline::Instance().Reset();
 #endif
 #if defined(DS3SC_FEATURE_ALLY_MARKERS) && DS3SC_FEATURE_ALLY_MARKERS

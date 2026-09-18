@@ -15,6 +15,16 @@
 #ifndef DS3SC_FEATURE_ALLY_MARKERS
 #define DS3SC_FEATURE_ALLY_MARKERS 0
 #endif
+#ifndef DS3SC_FEATURE_PLAYER_OUTLINE
+#define DS3SC_FEATURE_PLAYER_OUTLINE 0
+#endif
+
+#if (defined(DS3SC_FEATURE_ALLY_OUTLINE) && DS3SC_FEATURE_ALLY_OUTLINE) || \
+    (defined(DS3SC_FEATURE_PLAYER_OUTLINE) && DS3SC_FEATURE_PLAYER_OUTLINE)
+#define DS3SC_FEATURE_OUTLINE_CAPTURE 1
+#else
+#define DS3SC_FEATURE_OUTLINE_CAPTURE 0
+#endif
 
 namespace ds3sc::render {
 
@@ -44,9 +54,11 @@ __declspec(dllexport) extern volatile LONG ds3scOutlineThicknessInt;
 __declspec(dllexport) extern volatile LONG ds3scOutlineFillSilhouette;
 __declspec(dllexport) extern volatile LONG ds3scOutlineVisible;
 __declspec(dllexport) extern volatile LONG ds3scOutlineFallbackMarkers;
+__declspec(dllexport) extern volatile LONG ds3scPlayerOutlineEnable;
 __declspec(dllexport) extern volatile LONG ds3scDiamondMarkersEnable;
 __declspec(dllexport) extern volatile LONG ds3scD3D11Hooked;
 __declspec(dllexport) extern volatile LONG ds3scAllyDrawsCount;
 __declspec(dllexport) extern volatile LONG ds3scAllyDispatchCalls;
+__declspec(dllexport) extern volatile LONG ds3scDisableVsync;
 }
 

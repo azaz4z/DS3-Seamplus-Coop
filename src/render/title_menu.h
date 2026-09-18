@@ -15,13 +15,15 @@ namespace ds3sc::render {
 struct MenuSettingItem {
     std::string name;
     std::string valueDisplay;
-    int type; // 0 = bool, 1 = int range, 2 = info string
+    int type; // 0 = bool, 1 = int range, 2 = info string, 3 = separator/header
     int valInt;
     int minInt;
     int maxInt;
     int stepInt;
     const char* section;
     const char* key;
+    bool visible = true;
+    int indent = 0;
 };
 
 class TitleMenu final {
@@ -40,6 +42,13 @@ public:
             lastGamepadTick_ = modalOpenTick_;
             selectedItemIndex_ = -1;
             usingGamepadOrKeyboard_ = false;
+            ClipCursor(nullptr);
+            ShowCursor(TRUE);
+            SetCursor(LoadCursorA(nullptr, IDC_ARROW));
+        } else {
+            selectedItemIndex_ = -1;
+            usingGamepadOrKeyboard_ = false;
+            ShowCursor(FALSE);
         }
     }
 
@@ -47,7 +56,7 @@ public:
     void SaveSettingsToIni() noexcept;
     void EnsureSteamHook() noexcept;
     void EnsureInputHooks(HWND hWnd) noexcept;
-    void ProcessGamepadInput(unsigned short wButtons) noexcept;
+    void ProcessGamepadInput(unsigned short wButtons, short thumbLX = 0, short thumbLY = 0) noexcept;
     [[nodiscard]] float GetTextWidth(const char* str, float scale = 1.0f) const noexcept;
 
 private:
@@ -88,3 +97,8 @@ private:
 };
 
 } // namespace ds3sc::render
+
+extern "C" {
+__declspec(dllexport) extern volatile LONG ds3scConnectionMode;
+__declspec(dllexport) extern volatile LONG ds3scLanPort;
+}
