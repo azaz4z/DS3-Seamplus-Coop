@@ -746,8 +746,9 @@ void TitleMenu::LoadSettingsFromIni() noexcept {
 #if defined(DS3SC_FEATURE_PLAYER_OUTLINE) && DS3SC_FEATURE_PLAYER_OUTLINE
     int playerOutlineVal = readBool(L"PLAYER_OUTLINE", L"enabled", -1);
     if (playerOutlineVal == -1) {
-        playerOutlineVal = readBool(L"OUTLINE", L"outline_local_player", 1);
+        playerOutlineVal = readBool(L"OUTLINE", L"outline_local_player", 0);
     }
+    if (playerOutlineVal == -1) playerOutlineVal = 0;
     items_.push_back({
         "Player Outline & Silhouette", "", 0,
         playerOutlineVal, 0, 1, 1,
@@ -766,7 +767,7 @@ void TitleMenu::LoadSettingsFromIni() noexcept {
     // 4. Occluded Silhouette Fill
     items_.push_back({
         "Occluded Silhouette Fill", "", 0,
-        readBool(L"OUTLINE", L"fill_silhouette", 1), 0, 1, 1,
+        readBool(L"OUTLINE", L"fill_silhouette", 0), 0, 1, 1,
         "OUTLINE", "fill_silhouette"
     });
 #endif

@@ -39,9 +39,9 @@ bool PlayerOutlineExtension::Initialize() noexcept {
     ResolveSettingsPath(iniPath, sizeof(iniPath));
     int enabled = GetPrivateProfileIntA("PLAYER_OUTLINE", "enabled", -1, iniPath);
     if (enabled == -1) {
-        enabled = GetPrivateProfileIntA("OUTLINE", "outline_local_player", 1, iniPath);
+        enabled = GetPrivateProfileIntA("OUTLINE", "outline_local_player", 0, iniPath);
     }
-    InterlockedExchange(&ds3scPlayerOutlineEnable, enabled != 0 ? 1 : 0);
+    InterlockedExchange(&ds3scPlayerOutlineEnable, (enabled > 0) ? 1 : 0);
     return render::D3D11HookManager::Instance().Install();
 }
 

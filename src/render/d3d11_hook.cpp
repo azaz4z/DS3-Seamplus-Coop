@@ -58,7 +58,7 @@ extern "C" {
 __declspec(dllexport) volatile LONG ds3scOutlineShowMask = 0;
 __declspec(dllexport) volatile LONG ds3scOutlineEnable = 0;
 __declspec(dllexport) volatile LONG ds3scOutlineThicknessInt = 20;
-__declspec(dllexport) volatile LONG ds3scOutlineFillSilhouette = 1;
+__declspec(dllexport) volatile LONG ds3scOutlineFillSilhouette = 0;
 __declspec(dllexport) volatile LONG ds3scOutlineVisible = 0;
 __declspec(dllexport) volatile LONG ds3scOutlineFallbackMarkers = 1;
 __declspec(dllexport) volatile LONG ds3scPlayerOutlineEnable = 0;

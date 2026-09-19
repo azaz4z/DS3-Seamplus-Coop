@@ -287,7 +287,7 @@ void LoadSettingsFromIni(OutlineSettings& settings) noexcept {
 
     settings.showAllyMask = GetPrivateProfileIntA("OUTLINE", "show_ally_mask", 0, iniPath) != 0;
     settings.showAllyOutline = GetPrivateProfileIntA("OUTLINE", "show_ally_outline", 0, iniPath) != 0;
-    settings.fillSilhouette = GetPrivateProfileIntA("OUTLINE", "fill_silhouette", 1, iniPath) != 0;
+    settings.fillSilhouette = GetPrivateProfileIntA("OUTLINE", "fill_silhouette", 0, iniPath) != 0;
     settings.wireframeContour = GetPrivateProfileIntA("OUTLINE", "wireframe_contour", 1, iniPath) != 0;
     settings.showFallbackMarkers = GetPrivateProfileIntA("OUTLINE", "show_fallback_markers", 1, iniPath) != 0;
 

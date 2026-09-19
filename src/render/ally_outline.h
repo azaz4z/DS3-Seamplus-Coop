@@ -15,8 +15,8 @@ namespace ds3sc::render {
 
 struct OutlineSettings {
     bool showAllyMask = false;       // Display raw mask on screen
-    bool showAllyOutline = true;     // Enable outline composition
-    bool fillSilhouette = true;      // Fill occluded inner silhouette
+    bool showAllyOutline = false;    // Enable outline composition
+    bool fillSilhouette = false;     // Fill occluded inner silhouette
     bool wireframeContour = true;    // Defined polygonal wireframe contour
     bool showFallbackMarkers = true; // Fallback diamond markers
     float thickness = 2.0f;          // Thickness in pixels

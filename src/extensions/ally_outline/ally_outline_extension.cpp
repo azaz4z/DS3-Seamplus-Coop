@@ -32,7 +32,7 @@ bool AllyOutlineExtension::Initialize() noexcept {
     InterlockedExchange(&ds3scOutlineEnable,
         GetPrivateProfileIntA("OUTLINE", "show_ally_outline", 0, iniPath) != 0);
     InterlockedExchange(&ds3scOutlineFillSilhouette,
-        GetPrivateProfileIntA("OUTLINE", "fill_silhouette", 1, iniPath) != 0);
+        GetPrivateProfileIntA("OUTLINE", "fill_silhouette", 0, iniPath) != 0);
     InterlockedExchange(&ds3scOutlineThicknessInt,
         std::clamp(static_cast<int>(GetPrivateProfileIntA("OUTLINE", "outline_thickness", 20, iniPath)), 10, 40));
 
