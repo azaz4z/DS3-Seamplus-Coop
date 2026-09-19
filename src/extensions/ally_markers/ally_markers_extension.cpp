@@ -3,11 +3,13 @@
 #include "../../render/ally_marker.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 extern "C" {
 extern volatile LONG ds3scDiamondMarkersEnable;
 extern volatile LONG ds3scOutlineFallbackMarkers;
+extern volatile LONG ds3scDiamondMarkerHeightCm;
 }
 
 namespace ds3sc::extensions {
@@ -41,6 +43,15 @@ bool AllyMarkersExtension::Initialize() noexcept {
     InterlockedExchange(&ds3scDiamondMarkersEnable, enableVal);
     InterlockedExchange(&ds3scOutlineFallbackMarkers, enableVal);
 
+    char heightBuf[64] = {};
+    if (GetPrivateProfileStringA("ALLY_MARKERS", "height_offset", "", heightBuf, sizeof(heightBuf), iniPath) > 0) {
+        char* end = nullptr;
+        float val = std::strtof(heightBuf, &end);
+        if (end != heightBuf && val >= 0.5f && val <= 5.0f) {
+            InterlockedExchange(&ds3scDiamondMarkerHeightCm, static_cast<LONG>(std::round(val * 100.0f)));
+        }
+    }
+
     return render::D3D11HookManager::Instance().Install();
 }
 
@@ -63,5 +74,16 @@ __declspec(dllexport) void ds3sc_toggle_ally_markers(int show) {
 
 __declspec(dllexport) int ds3sc_are_ally_markers_enabled() {
     return ds3scDiamondMarkersEnable != 0 ? 1 : 0;
+}
+
+__declspec(dllexport) void ds3sc_set_marker_height_offset(float offset) {
+    if (offset >= 0.5f && offset <= 5.0f) {
+        InterlockedExchange(&ds3scDiamondMarkerHeightCm, static_cast<LONG>(std::round(offset * 100.0f)));
+    }
+}
+
+__declspec(dllexport) float ds3sc_get_marker_height_offset() {
+    const LONG cm = ds3scDiamondMarkerHeightCm;
+    return (cm > 0) ? (cm / 100.0f) : 1.55f;
 }
 }

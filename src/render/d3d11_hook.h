@@ -56,6 +56,7 @@ __declspec(dllexport) extern volatile LONG ds3scOutlineVisible;
 __declspec(dllexport) extern volatile LONG ds3scOutlineFallbackMarkers;
 __declspec(dllexport) extern volatile LONG ds3scPlayerOutlineEnable;
 __declspec(dllexport) extern volatile LONG ds3scDiamondMarkersEnable;
+__declspec(dllexport) extern volatile LONG ds3scDiamondMarkerHeightCm;
 __declspec(dllexport) extern volatile LONG ds3scD3D11Hooked;
 __declspec(dllexport) extern volatile LONG ds3scAllyDrawsCount;
 __declspec(dllexport) extern volatile LONG ds3scAllyDispatchCalls;

@@ -387,6 +387,10 @@ void ActorTracker::UpdateCameraFromSceneCB(const void* cbData, std::size_t cbSiz
 }
 
 void ActorTracker::Update(std::uint64_t frameNumber) noexcept {
+    if (!settingsLoaded_) {
+        LoadSettingsFromIni();
+    }
+
     std::lock_guard<std::recursive_mutex> lock(actorsMutex_);
     actors_.clear();
     hasValidCamera_ = false;
@@ -445,7 +449,13 @@ void ActorTracker::Update(std::uint64_t frameNumber) noexcept {
                     SafeRead(compActor.drawEntity + 0xb00u, compActor.flverData);
                 }
             }
-            SafeRead(compActor.chrModel + 0x3c58u, compActor.asmEntity);
+            std::uintptr_t p20b0 = 0;
+            if (SafeRead(compActor.chrIns + 0x20b0u, p20b0) && p20b0 != 0) {
+                SafeRead(p20b0 + 0x8u, compActor.asmEntity);
+            }
+            if (!IsValidUserPointer(reinterpret_cast<void*>(compActor.asmEntity), sizeof(std::uintptr_t))) {
+                compActor.asmEntity = 0;
+            }
         }
         compActor.isAlly = true;
         compActor.isLocal = false;
@@ -494,12 +504,12 @@ void ActorTracker::Update(std::uint64_t frameNumber) noexcept {
                 fastLocalEntity_.store(0, std::memory_order_release);
             }
 
-            SafeRead(localActor.chrModel + 0x3c58u, localActor.asmEntity);
-            if (localActor.asmEntity == 0) {
-                std::uintptr_t p20b0 = 0;
-                if (SafeRead(localChr + 0x20b0u, p20b0) && p20b0 != 0) {
-                    SafeRead(p20b0 + 0x8u, localActor.asmEntity);
-                }
+            std::uintptr_t p20b0 = 0;
+            if (SafeRead(localChr + 0x20b0u, p20b0) && p20b0 != 0) {
+                SafeRead(p20b0 + 0x8u, localActor.asmEntity);
+            }
+            if (!IsValidUserPointer(reinterpret_cast<void*>(localActor.asmEntity), sizeof(std::uintptr_t))) {
+                localActor.asmEntity = 0;
             }
             fastLocalAsmEntity_.store(localActor.asmEntity, std::memory_order_release);
         } else {
@@ -568,12 +578,12 @@ void ActorTracker::Update(std::uint64_t frameNumber) noexcept {
                             SafeRead(remoteActor.drawEntity + 0xb00u, remoteActor.flverData);
                         }
                     }
-                    SafeRead(remoteActor.chrModel + 0x3c58u, remoteActor.asmEntity);
-                    if (remoteActor.asmEntity == 0) {
-                        std::uintptr_t p20b0 = 0;
-                        if (SafeRead(remoteChr + 0x20b0u, p20b0) && p20b0 != 0) {
-                            SafeRead(p20b0 + 0x8u, remoteActor.asmEntity);
-                        }
+                    std::uintptr_t p20b0 = 0;
+                    if (SafeRead(remoteChr + 0x20b0u, p20b0) && p20b0 != 0) {
+                        SafeRead(p20b0 + 0x8u, remoteActor.asmEntity);
+                    }
+                    if (!IsValidUserPointer(reinterpret_cast<void*>(remoteActor.asmEntity), sizeof(std::uintptr_t))) {
+                        remoteActor.asmEntity = 0;
                     }
                 }
                 remoteActor.isLocal = false;
@@ -862,7 +872,7 @@ bool ActorTracker::ProjectWorldToScreen(
     std::lock_guard<std::recursive_mutex> lock(actorsMutex_);
     if (!cameraData_.valid || screenW <= 0.0f || screenH <= 0.0f) return false;
 
-    // Overhead indicator sits above character head (~2.15m above root feet pos)
+    // Overhead indicator sits above character head (~1.55m above root feet pos)
     const float dx = worldPos[0] - cameraData_.pos[0];
     const float dy = (worldPos[1] + heightOffset) - cameraData_.pos[1];
     const float dz = worldPos[2] - cameraData_.pos[2];
@@ -1048,6 +1058,57 @@ bool ActorTracker::IsRayOccludedByLocalPlayer(const float targetWorldPos[3]) con
     return (distSq <= kCharRadiusSq && s > 0.02f && s < 0.95f);
 }
 
+extern "C" {
+__declspec(dllexport) volatile LONG ds3scDiamondMarkerHeightCm = 155;
+}
+
+void ActorTracker::SetMarkerHeightOffset(float offset) noexcept {
+    markerHeightOffset_.store(offset, std::memory_order_relaxed);
+    if (offset >= 0.5f && offset <= 5.0f) {
+        InterlockedExchange(&ds3scDiamondMarkerHeightCm, static_cast<LONG>(std::round(offset * 100.0f)));
+    }
+}
+
+float ActorTracker::GetMarkerHeightOffset() const noexcept {
+    const LONG cm = ds3scDiamondMarkerHeightCm;
+    if (cm > 0) return cm / 100.0f;
+    return markerHeightOffset_.load(std::memory_order_relaxed);
+}
+
+void ActorTracker::LoadSettingsFromIni() noexcept {
+    settingsLoaded_ = true;
+    char iniPath[MAX_PATH] = {};
+    HMODULE hModule = nullptr;
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                           GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           reinterpret_cast<LPCSTR>(&ActorTracker::Instance), &hModule) && hModule) {
+        GetModuleFileNameA(hModule, iniPath, sizeof(iniPath));
+        char* lastSlash = strrchr(iniPath, '\\');
+        if (lastSlash) {
+            strcpy_s(lastSlash + 1, sizeof(iniPath) - (lastSlash + 1 - iniPath), "ds3sc_settings.ini");
+        }
+    }
+    if (iniPath[0] == '\0' || GetFileAttributesA(iniPath) == INVALID_FILE_ATTRIBUTES) {
+        if (GetFileAttributesA("SeamplusCoop\\ds3sc_settings.ini") != INVALID_FILE_ATTRIBUTES) {
+            strcpy_s(iniPath, "SeamplusCoop\\ds3sc_settings.ini");
+        } else if (GetFileAttributesA("SeamlessCoop\\ds3sc_settings.ini") != INVALID_FILE_ATTRIBUTES) {
+            strcpy_s(iniPath, "SeamlessCoop\\ds3sc_settings.ini");
+        }
+    }
+
+    if (iniPath[0] != '\0' && GetFileAttributesA(iniPath) != INVALID_FILE_ATTRIBUTES) {
+        char heightBuf[64] = {};
+        if (GetPrivateProfileStringA("ALLY_MARKERS", "height_offset", "", heightBuf, sizeof(heightBuf), iniPath) > 0) {
+            char* end = nullptr;
+            float val = std::strtof(heightBuf, &end);
+            if (end != heightBuf && val >= 0.5f && val <= 5.0f) {
+                markerHeightOffset_.store(val, std::memory_order_relaxed);
+                InterlockedExchange(&ds3scDiamondMarkerHeightCm, static_cast<LONG>(std::round(val * 100.0f)));
+            }
+        }
+    }
+}
+
 std::size_t ActorTracker::GetAllyProjections(
     AllyScreenProjection* outProjections,
     std::size_t maxCount,
@@ -1060,12 +1121,13 @@ std::size_t ActorTracker::GetAllyProjections(
     std::lock_guard<std::recursive_mutex> lock(actorsMutex_);
     if (!cameraData_.valid || screenW <= 0.0f || screenH <= 0.0f) return 0;
 
+    const float markerHeight = GetMarkerHeightOffset();
     std::size_t count = 0;
     for (const auto& a : actors_) {
         if (!a.isAlly || a.isLocal || count >= maxCount) continue;
 
         const float markerWorldPos[3] = {
-            a.position[0], a.position[1] + 2.15f, a.position[2]
+            a.position[0], a.position[1] + markerHeight, a.position[2]
         };
 
         // When the renderer has a current-frame local-player mask, the pixel
@@ -1075,8 +1137,8 @@ std::size_t ActorTracker::GetAllyProjections(
         if (cullLocalPlayer && IsRayOccludedByLocalPlayer(markerWorldPos)) continue;
 
         float sx = 0.0f, sy = 0.0f, dist = 0.0f;
-        // Project diamond marker overhead (+2.15m height)
-        if (ProjectWorldToScreen(a.position, sx, sy, dist, screenW, screenH, 2.15f)) {
+        // Project diamond marker overhead
+        if (ProjectWorldToScreen(a.position, sx, sy, dist, screenW, screenH, markerHeight)) {
             // Cull off-screen projections
             if (sx < -20.0f || sx > screenW + 20.0f || sy < -20.0f || sy > screenH + 20.0f) {
                 continue;

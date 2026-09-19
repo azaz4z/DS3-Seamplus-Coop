@@ -152,6 +152,10 @@ public:
     [[nodiscard]] const float* GetCameraPosition() const noexcept { return cameraPos_; }
     [[nodiscard]] CameraData GetCameraData() const noexcept;
 
+    void SetMarkerHeightOffset(float offset) noexcept;
+    [[nodiscard]] float GetMarkerHeightOffset() const noexcept;
+    void LoadSettingsFromIni() noexcept;
+
     bool ProjectWorldToScreen(
         const float worldPos[3],
         float& outScreenX,
@@ -159,7 +163,7 @@ public:
         float& outDistance,
         float screenW,
         float screenH,
-        float heightOffset = 2.15f
+        float heightOffset = 1.55f
     ) const noexcept;
 
     [[nodiscard]] bool IsGameMenuOpen() const noexcept;
@@ -206,7 +210,8 @@ private:
     std::atomic<std::uintptr_t> fastLocalModel_{0};
     std::array<FastAllyBounds, kMaxFastAllies> fastAllyBounds_{};
     std::atomic<std::size_t> fastAllyBoundsCount_{0};
-
+    std::atomic<float> markerHeightOffset_{1.55f};
+    bool settingsLoaded_{false};
 };
 
 } // namespace ds3sc::render
