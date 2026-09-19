@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <atomic>
 
 namespace ds3sc::render {
 
@@ -24,6 +25,7 @@ struct MenuSettingItem {
     const char* key;
     bool visible = true;
     int indent = 0;
+    bool dirty = false;
 };
 
 class TitleMenu final {
@@ -34,36 +36,24 @@ public:
     void Reset() noexcept;
 
     [[nodiscard]] bool IsModalOpen() const noexcept { return isModalOpen_; }
-    void SetModalOpen(bool open) noexcept {
-        isModalOpen_ = open;
-        if (open) {
-            modalOpenTick_ = GetTickCount64();
-            lastInputTick_ = modalOpenTick_;
-            lastGamepadTick_ = modalOpenTick_;
-            selectedItemIndex_ = -1;
-            usingGamepadOrKeyboard_ = false;
-            ClipCursor(nullptr);
-            ShowCursor(TRUE);
-            SetCursor(LoadCursorA(nullptr, IDC_ARROW));
-        } else {
-            selectedItemIndex_ = -1;
-            usingGamepadOrKeyboard_ = false;
-            ShowCursor(FALSE);
-        }
-    }
+    void SetModalOpen(bool open) noexcept;
+    void RequestModalOpen() noexcept { openRequested_.store(true); }
 
     void LoadSettingsFromIni() noexcept;
-    void SaveSettingsToIni() noexcept;
+    bool SaveSettingsToIni() noexcept;
     void EnsureSteamHook() noexcept;
     void EnsureInputHooks(HWND hWnd) noexcept;
     void ProcessGamepadInput(unsigned short wButtons, short thumbLX = 0, short thumbLY = 0) noexcept;
     [[nodiscard]] float GetTextWidth(const char* str, float scale = 1.0f) const noexcept;
 
 private:
+    friend struct TitleMenuTestAccess;
     TitleMenu();
     HRESULT EnsureResources(ID3D11Device* device, UINT width, UINT height) noexcept;
     void UpdateItemDisplays() noexcept;
-    void ApplyLiveSettings() noexcept;
+    void RefreshLiveSettings() noexcept;
+    void ApplyLiveSetting(const MenuSettingItem& item) noexcept;
+    void AdjustItem(int index, bool forward) noexcept;
 
     Microsoft::WRL::ComPtr<ID3D11Device> device_;
     Microsoft::WRL::ComPtr<ID3D11VertexShader> vertexShader_;
@@ -82,7 +72,15 @@ private:
     UINT width_ = 0;
     UINT height_ = 0;
 
-    bool isModalOpen_ = false;
+    std::atomic<bool> isModalOpen_{false};
+    std::atomic<bool> openRequested_{false};
+    bool settingsDirty_ = false;
+    bool gamepadLeftHeld_ = false;
+    bool gamepadRightHeld_ = false;
+    bool gamepadInputReady_ = false;
+    unsigned short gamepadButtonsHeld_ = 0;
+    bool keyboardLeftHeld_ = false;
+    bool keyboardRightHeld_ = false;
     int selectedItemIndex_ = -1;
     bool usingGamepadOrKeyboard_ = false;
     bool isTitleItemHovered_ = false;

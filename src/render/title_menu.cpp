@@ -25,8 +25,7 @@ namespace ds3sc::render {
 static bool (__fastcall *s_origDlcMenuAction)(void* self) = nullptr;
 
 static bool __fastcall Hooked_DlcMenuAction(void* /*self*/) {
-    TitleMenu::Instance().SetModalOpen(true);
-    TitleMenu::Instance().LoadSettingsFromIni();
+    TitleMenu::Instance().RequestModalOpen();
     return true; // Suppress native store overlay completely
 }
 
@@ -37,14 +36,12 @@ static void (__fastcall *s_origActivateGameOverlay)(void* self, const char* pchD
 
 static void __fastcall Hooked_ActivateGameOverlayToStore(void* /*self*/, std::uint32_t /*nAppId*/, int /*eFlag*/) {
     // Intercept native option 4 ("Seamplus") activation via gamepad or keyboard!
-    TitleMenu::Instance().SetModalOpen(true);
-    TitleMenu::Instance().LoadSettingsFromIni();
+    TitleMenu::Instance().RequestModalOpen();
 }
 
 static void __fastcall Hooked_ActivateGameOverlay(void* self, const char* pchDialog) {
     if (pchDialog && (_stricmp(pchDialog, "Store") == 0 || _stricmp(pchDialog, "community") == 0)) {
-        TitleMenu::Instance().SetModalOpen(true);
-        TitleMenu::Instance().LoadSettingsFromIni();
+        TitleMenu::Instance().RequestModalOpen();
         return;
     }
     if (s_origActivateGameOverlay) {
@@ -62,6 +59,7 @@ extern "C" {
 #endif
 #if defined(DS3SC_FEATURE_ALLY_MARKERS) && DS3SC_FEATURE_ALLY_MARKERS
     extern volatile LONG ds3scDiamondMarkersEnable;
+    extern volatile LONG ds3scDiamondMarkerHeightCm;
 #endif
     __declspec(dllexport) volatile LONG ds3scConnectionMode = 0;
     __declspec(dllexport) volatile LONG ds3scLanPort = 27015;
@@ -185,6 +183,40 @@ TitleMenu& TitleMenu::Instance() noexcept {
 TitleMenu::TitleMenu() {
     iniPath_ = GetIniPath();
     LoadSettingsFromIni();
+    // Network exports have no extension of their own to load these at startup.
+    ds3scConnectionMode = GetPrivateProfileIntW(L"NETWORK", L"connection_mode", 0, iniPath_.c_str()) != 0;
+    ds3scLanPort = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"NETWORK", L"lan_port", 27015, iniPath_.c_str())), 1024, 65535);
+}
+
+void TitleMenu::SetModalOpen(bool open) noexcept {
+    if (isModalOpen_ == open) return;
+    if (!open && settingsDirty_ && !SaveSettingsToIni()) return;
+    isModalOpen_ = open;
+    selectedItemIndex_ = -1;
+    usingGamepadOrKeyboard_ = false;
+    gamepadLeftHeld_ = false;
+    gamepadRightHeld_ = false;
+    gamepadInputReady_ = false;
+    gamepadButtonsHeld_ = 0;
+    keyboardLeftHeld_ = (GetAsyncKeyState(VK_LEFT) & 0x8000) || (GetAsyncKeyState('A') & 0x8000);
+    keyboardRightHeld_ = (GetAsyncKeyState(VK_RIGHT) & 0x8000) || (GetAsyncKeyState('D') & 0x8000) ||
+                         (GetAsyncKeyState(VK_RETURN) & 0x8000) || (GetAsyncKeyState(VK_SPACE) & 0x8000);
+    if (open) {
+        LoadSettingsFromIni();
+        RefreshLiveSettings();
+        modalOpenTick_ = GetTickCount64();
+        lastInputTick_ = modalOpenTick_;
+        lastGamepadTick_ = modalOpenTick_;
+#if !defined(DS3SC_STANDALONE_TEST)
+        ClipCursor(nullptr);
+        ShowCursor(TRUE);
+        SetCursor(LoadCursorA(nullptr, IDC_ARROW));
+#endif
+    } else {
+#if !defined(DS3SC_STANDALONE_TEST)
+        ShowCursor(FALSE);
+#endif
+    }
 }
 
 void TitleMenu::EnsureSteamHook() noexcept {
@@ -304,8 +336,6 @@ static DWORD WINAPI Hooked_XInputGetState(DWORD dwUserIndex, XINPUT_STATE* pStat
     if (!s_origXInputGetState) return ERROR_DEVICE_NOT_CONNECTED;
     DWORD ret = s_origXInputGetState(dwUserIndex, pState);
     if (ret == ERROR_SUCCESS && pState && TitleMenu::Instance().IsModalOpen()) {
-        TitleMenu::Instance().ProcessGamepadInput(pState->Gamepad.wButtons, pState->Gamepad.sThumbLX, pState->Gamepad.sThumbLY);
-
         // Suppress inputs from reaching Dark Souls III behind the menu
         pState->Gamepad.wButtons = 0;
         pState->Gamepad.bLeftTrigger = 0;
@@ -322,8 +352,6 @@ static DWORD WINAPI Hooked_XInputGetStateEx(DWORD dwUserIndex, XINPUT_STATE* pSt
     if (!s_origXInputGetStateEx) return ERROR_DEVICE_NOT_CONNECTED;
     DWORD ret = s_origXInputGetStateEx(dwUserIndex, pState);
     if (ret == ERROR_SUCCESS && pState && TitleMenu::Instance().IsModalOpen()) {
-        TitleMenu::Instance().ProcessGamepadInput(pState->Gamepad.wButtons, pState->Gamepad.sThumbLX, pState->Gamepad.sThumbLY);
-
         pState->Gamepad.wButtons = 0;
         pState->Gamepad.bLeftTrigger = 0;
         pState->Gamepad.bRightTrigger = 0;
@@ -596,14 +624,29 @@ static int StepFpsPreset(int current, bool forward) noexcept {
 }
 
 void TitleMenu::ProcessGamepadInput(unsigned short wButtons, short thumbLX, short thumbLY) noexcept {
+    if (!IsModalOpen()) return;
     const auto now = GetTickCount64();
-    if (now - lastGamepadTick_ < 180) return;
-
     constexpr short kStickDeadzone = 16000;
     const bool up = (wButtons & 0x0001 /* XINPUT_GAMEPAD_DPAD_UP */) || (thumbLY > kStickDeadzone);
     const bool down = (wButtons & 0x0002 /* XINPUT_GAMEPAD_DPAD_DOWN */) || (thumbLY < -kStickDeadzone);
     const bool left = (wButtons & 0x0004 /* XINPUT_GAMEPAD_DPAD_LEFT */) || (thumbLX < -kStickDeadzone);
     const bool right = (wButtons & 0x0008 /* XINPUT_GAMEPAD_DPAD_RIGHT */) || (wButtons & 0x1000 /* XINPUT_GAMEPAD_A */) || (thumbLX > kStickDeadzone);
+    if (!gamepadInputReady_) {
+        gamepadLeftHeld_ = left;
+        gamepadRightHeld_ = right;
+        gamepadButtonsHeld_ = wButtons;
+        gamepadInputReady_ = true;
+        return;
+    }
+    const auto pressedButtons = static_cast<unsigned short>(wButtons & ~gamepadButtonsHeld_);
+    gamepadButtonsHeld_ = wButtons;
+    if (!left) gamepadLeftHeld_ = false;
+    if (!right) gamepadRightHeld_ = false;
+    if (now - lastGamepadTick_ < 180 && !pressedButtons) return;
+    const bool leftPressed = left && !gamepadLeftHeld_;
+    const bool rightPressed = right && !gamepadRightHeld_;
+    gamepadLeftHeld_ = left;
+    gamepadRightHeld_ = right;
 
     if (up) {
         usingGamepadOrKeyboard_ = true;
@@ -634,19 +677,7 @@ void TitleMenu::ProcessGamepadInput(unsigned short wButtons, short thumbLX, shor
         if (selectedItemIndex_ < 0) selectedItemIndex_ = 0;
         if (selectedItemIndex_ >= 0 && selectedItemIndex_ < static_cast<int>(items_.size())) {
             auto& it = items_[selectedItemIndex_];
-            if (it.type == 0) {
-                it.valInt = (it.valInt == 0) ? 1 : 0;
-            } else if (it.type == 1) {
-                if (strcmp(it.key, "target_fps") == 0) {
-                    it.valInt = StepFpsPreset(it.valInt, false);
-                } else if (strcmp(it.key, "lan_port") == 0) {
-                    it.valInt = std::max(it.minInt, it.valInt - 10);
-                } else {
-                    it.valInt = std::max(it.minInt, it.valInt - it.stepInt);
-                }
-            }
-            UpdateItemDisplays();
-            ApplyLiveSettings();
+            if (it.type == 1 || leftPressed) AdjustItem(selectedItemIndex_, false);
         }
         lastGamepadTick_ = now;
     } else if (right) {
@@ -654,31 +685,20 @@ void TitleMenu::ProcessGamepadInput(unsigned short wButtons, short thumbLX, shor
         if (selectedItemIndex_ < 0) selectedItemIndex_ = 0;
         if (selectedItemIndex_ >= 0 && selectedItemIndex_ < static_cast<int>(items_.size())) {
             auto& it = items_[selectedItemIndex_];
-            if (it.type == 0) {
-                it.valInt = (it.valInt == 0) ? 1 : 0;
-            } else if (it.type == 1) {
-                if (strcmp(it.key, "target_fps") == 0) {
-                    it.valInt = StepFpsPreset(it.valInt, true);
-                } else if (strcmp(it.key, "lan_port") == 0) {
-                    it.valInt = std::min(it.maxInt, it.valInt + 10);
-                } else {
-                    it.valInt = std::min(it.maxInt, it.valInt + it.stepInt);
-                }
-            }
-            UpdateItemDisplays();
-            ApplyLiveSettings();
+            if (it.type == 1 || rightPressed) AdjustItem(selectedItemIndex_, true);
         }
         lastGamepadTick_ = now;
-    } else if (wButtons & 0x2000 /* XINPUT_GAMEPAD_B */) {
+    } else if (pressedButtons & 0x2000 /* XINPUT_GAMEPAD_B */) {
         SetModalOpen(false);
         lastGamepadTick_ = now;
-    } else if (wButtons & 0x0010 /* XINPUT_GAMEPAD_START */) {
+    } else if (pressedButtons & 0x0010 /* XINPUT_GAMEPAD_START */) {
         SaveSettingsToIni();
         lastGamepadTick_ = now;
     }
 }
 
 void TitleMenu::LoadSettingsFromIni() noexcept {
+    if (settingsDirty_) return;
     items_.clear();
 
     const auto readBool = [&](const wchar_t* sec, const wchar_t* key, int defVal) -> int {
@@ -696,8 +716,21 @@ void TitleMenu::LoadSettingsFromIni() noexcept {
 #if defined(DS3SC_FEATURE_ALLY_MARKERS) && DS3SC_FEATURE_ALLY_MARKERS
     items_.push_back({
         "Ally Diamond Markers", "", 0,
-        readBool(L"ALLY_MARKERS", L"enabled", 1), 0, 1, 1,
+        readBool(L"ALLY_MARKERS", L"enabled", readBool(L"OUTLINE", L"show_fallback_markers", 1)), 0, 1, 1,
         "ALLY_MARKERS", "enabled"
+    });
+
+    wchar_t hBuf[32] = {};
+    GetPrivateProfileStringW(L"ALLY_MARKERS", L"height_offset", L"1.55", hBuf, ARRAYSIZE(hBuf), iniPath_.c_str());
+    float hVal = wcstof(hBuf, nullptr);
+    if (hVal <= 0.1f || hVal > 5.0f) hVal = 1.55f;
+    int heightCm = static_cast<int>(std::round(hVal * 100.0f));
+    heightCm = std::clamp(heightCm, 100, 250);
+
+    items_.push_back({
+        "Marker Height Offset", "", 1,
+        heightCm, 100, 250, 5,
+        "ALLY_MARKERS", "height_offset"
     });
 #endif
 
@@ -708,28 +741,32 @@ void TitleMenu::LoadSettingsFromIni() noexcept {
         readBool(L"OUTLINE", L"show_ally_outline", 0), 0, 1, 1,
         "OUTLINE", "show_ally_outline"
     });
+#endif
 
+#if defined(DS3SC_FEATURE_PLAYER_OUTLINE) && DS3SC_FEATURE_PLAYER_OUTLINE
     int playerOutlineVal = readBool(L"PLAYER_OUTLINE", L"enabled", -1);
     if (playerOutlineVal == -1) {
-        playerOutlineVal = readBool(L"OUTLINE", L"outline_local_player", 0);
+        playerOutlineVal = readBool(L"OUTLINE", L"outline_local_player", 1);
     }
     items_.push_back({
         "Player Outline & Silhouette", "", 0,
         playerOutlineVal, 0, 1, 1,
         "PLAYER_OUTLINE", "enabled"
     });
+#endif
 
+#if DS3SC_FEATURE_OUTLINE_CAPTURE
     // 3. Outline Thickness (10 = 1.0px, 20 = 2.0px, 30 = 3.0px, 40 = 4.0px)
     items_.push_back({
         "Outline Thickness", "", 1,
-        20, 10, 40, 10,
+        std::clamp(readBool(L"OUTLINE", L"outline_thickness", 20), 10, 40), 10, 40, 10,
         "OUTLINE", "outline_thickness"
     });
 
     // 4. Occluded Silhouette Fill
     items_.push_back({
         "Occluded Silhouette Fill", "", 0,
-        readBool(L"OUTLINE", L"fill_silhouette", 0), 0, 1, 1,
+        readBool(L"OUTLINE", L"fill_silhouette", 1), 0, 1, 1,
         "OUTLINE", "fill_silhouette"
     });
 #endif
@@ -852,6 +889,10 @@ void TitleMenu::UpdateItemDisplays() noexcept {
             char buf[32];
             std::snprintf(buf, sizeof(buf), "< %d FPS >", it.valInt);
             it.valueDisplay = buf;
+        } else if (strcmp(it.key, "height_offset") == 0) {
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "< %.2f m >", it.valInt / 100.0f);
+            it.valueDisplay = buf;
         } else if (it.type == 0) {
             it.valueDisplay = (it.valInt != 0) ? "< ENABLED >" : "< DISABLED >";
         } else if (it.type == 1) {
@@ -862,43 +903,75 @@ void TitleMenu::UpdateItemDisplays() noexcept {
     }
 }
 
-void TitleMenu::SaveSettingsToIni() noexcept {
-    for (const auto& it : items_) {
-        if (it.type == 0 || it.type == 1) {
-            wchar_t valStr[16] = {};
+bool TitleMenu::SaveSettingsToIni() noexcept {
+    bool saved = true;
+    for (auto& it : items_) {
+        if (!it.dirty || (it.type != 0 && it.type != 1)) continue;
+        wchar_t valStr[16] = {};
+        if (strcmp(it.key, "height_offset") == 0) {
+            swprintf_s(valStr, L"%.2f", it.valInt / 100.0f);
+        } else {
             swprintf_s(valStr, L"%d", it.valInt);
-            wchar_t wSec[64] = {}, wKey[64] = {};
-            MultiByteToWideChar(CP_UTF8, 0, it.section, -1, wSec, ARRAYSIZE(wSec));
-            MultiByteToWideChar(CP_UTF8, 0, it.key, -1, wKey, ARRAYSIZE(wKey));
-            WritePrivateProfileStringW(wSec, wKey, valStr, iniPath_.c_str());
-            if (strcmp(it.key, "enabled") == 0 && strcmp(it.section, "PLAYER_OUTLINE") == 0) {
-                WritePrivateProfileStringW(L"OUTLINE", L"outline_local_player", valStr, iniPath_.c_str());
-            }
         }
+        wchar_t wSec[64] = {}, wKey[64] = {};
+        MultiByteToWideChar(CP_UTF8, 0, it.section, -1, wSec, ARRAYSIZE(wSec));
+        MultiByteToWideChar(CP_UTF8, 0, it.key, -1, wKey, ARRAYSIZE(wKey));
+        bool itemSaved = WritePrivateProfileStringW(wSec, wKey, valStr, iniPath_.c_str()) != FALSE;
+        if (strcmp(it.key, "enabled") == 0 && strcmp(it.section, "PLAYER_OUTLINE") == 0) {
+            itemSaved = (WritePrivateProfileStringW(L"OUTLINE", L"outline_local_player", valStr, iniPath_.c_str()) != FALSE) && itemSaved;
+        } else if (strcmp(it.key, "enabled") == 0 && strcmp(it.section, "ALLY_MARKERS") == 0) {
+            itemSaved = (WritePrivateProfileStringW(L"OUTLINE", L"show_fallback_markers", valStr, iniPath_.c_str()) != FALSE) && itemSaved;
+        }
+        it.dirty = !itemSaved;
+        saved = saved && itemSaved;
     }
-    ApplyLiveSettings();
-    saveStatusText_ = "SETTINGS SAVED & APPLIED";
+    settingsDirty_ = !saved;
+    saveStatusText_ = saved ? "SETTINGS SAVED" : "SAVE FAILED - CHANGES KEPT; RETRY SAVE";
     saveStatusTick_ = GetTickCount64();
+    return saved;
 }
 
-void TitleMenu::ApplyLiveSettings() noexcept {
-    for (const auto& it : items_) {
+void TitleMenu::AdjustItem(int index, bool forward) noexcept {
+    if (index < 0 || index >= static_cast<int>(items_.size())) return;
+    auto& it = items_[index];
+    const int previous = it.valInt;
+    if (it.type == 0) {
+        it.valInt = it.valInt == 0 ? 1 : 0;
+    } else if (it.type == 1) {
+        if (strcmp(it.key, "target_fps") == 0) {
+            it.valInt = StepFpsPreset(it.valInt, forward);
+        } else {
+            const int step = strcmp(it.key, "lan_port") == 0 ? 10 : it.stepInt;
+            it.valInt = std::clamp(it.valInt + (forward ? step : -step), it.minInt, it.maxInt);
+        }
+    }
+    if (it.valInt == previous) return;
+    it.dirty = true;
+    settingsDirty_ = true;
+    ApplyLiveSetting(it);
+    UpdateItemDisplays();
+}
+
+void TitleMenu::ApplyLiveSetting(const MenuSettingItem& it) noexcept {
 #if defined(DS3SC_FEATURE_ALLY_MARKERS) && DS3SC_FEATURE_ALLY_MARKERS
         if (strcmp(it.key, "enabled") == 0 && strcmp(it.section, "ALLY_MARKERS") == 0) {
-            ds3scDiamondMarkersEnable = it.valInt;
+            InterlockedExchange(&ds3scDiamondMarkersEnable, it.valInt);
+            InterlockedExchange(&ds3scOutlineFallbackMarkers, it.valInt);
+        } else if (strcmp(it.key, "height_offset") == 0 && strcmp(it.section, "ALLY_MARKERS") == 0) {
+            InterlockedExchange(&ds3scDiamondMarkerHeightCm, it.valInt);
         }
 #endif
-#if defined(DS3SC_FEATURE_ALLY_OUTLINE) && DS3SC_FEATURE_ALLY_OUTLINE
+#if DS3SC_FEATURE_OUTLINE_CAPTURE
         if (strcmp(it.key, "show_ally_outline") == 0) {
-            ds3scOutlineEnable = it.valInt;
+            InterlockedExchange(&ds3scOutlineEnable, it.valInt);
         } else if (strcmp(it.key, "outline_thickness") == 0) {
-            ds3scOutlineThicknessInt = it.valInt;
+            InterlockedExchange(&ds3scOutlineThicknessInt, it.valInt);
         } else if (strcmp(it.key, "fill_silhouette") == 0) {
-            ds3scOutlineFillSilhouette = it.valInt;
+            InterlockedExchange(&ds3scOutlineFillSilhouette, it.valInt);
         } else if (strcmp(it.key, "outline_local_player") == 0) {
-            ds3scPlayerOutlineEnable = it.valInt;
+            InterlockedExchange(&ds3scPlayerOutlineEnable, it.valInt);
         } else if (strcmp(it.key, "enabled") == 0 && strcmp(it.section, "PLAYER_OUTLINE") == 0) {
-            ds3scPlayerOutlineEnable = it.valInt;
+            InterlockedExchange(&ds3scPlayerOutlineEnable, it.valInt);
         }
 #endif
 #if (defined(DS3SC_FEATURE_COUNTERS) && DS3SC_FEATURE_COUNTERS) || (defined(DS3SC_FEATURE_CONTADORES) && DS3SC_FEATURE_CONTADORES) || (defined(DS3SC_FEATURE_COMBAT_STATS) && DS3SC_FEATURE_COMBAT_STATS)
@@ -908,9 +981,9 @@ void TitleMenu::ApplyLiveSettings() noexcept {
         }
 #endif
         if (strcmp(it.key, "connection_mode") == 0 && strcmp(it.section, "NETWORK") == 0) {
-            ds3scConnectionMode = it.valInt;
+            InterlockedExchange(&ds3scConnectionMode, it.valInt);
         } else if (strcmp(it.key, "lan_port") == 0 && strcmp(it.section, "NETWORK") == 0) {
-            ds3scLanPort = it.valInt;
+            InterlockedExchange(&ds3scLanPort, it.valInt);
         }
 #if defined(DS3SC_FEATURE_FPS_UNLOCK) && DS3SC_FEATURE_FPS_UNLOCK
         else if (strcmp(it.key, "unlock_fps") == 0 && strcmp(it.section, "FPS") == 0) {
@@ -921,7 +994,45 @@ void TitleMenu::ApplyLiveSettings() noexcept {
             ds3sc_set_vsync(it.valInt);
         }
 #endif
+}
+
+void TitleMenu::RefreshLiveSettings() noexcept {
+    // Opening the UI only reads live state. It must never reset another module.
+    for (auto& it : items_) {
+        if (it.dirty) continue;
+#if defined(DS3SC_FEATURE_ALLY_MARKERS) && DS3SC_FEATURE_ALLY_MARKERS
+        if (strcmp(it.section, "ALLY_MARKERS") == 0) {
+            if (strcmp(it.key, "enabled") == 0)
+                it.valInt = ds3scDiamondMarkersEnable != 0;
+            else if (strcmp(it.key, "height_offset") == 0)
+                it.valInt = ds3scDiamondMarkerHeightCm;
+        }
+#endif
+#if DS3SC_FEATURE_OUTLINE_CAPTURE
+        if (strcmp(it.section, "OUTLINE") == 0) {
+            if (strcmp(it.key, "show_ally_outline") == 0) it.valInt = ds3scOutlineEnable != 0;
+            else if (strcmp(it.key, "outline_thickness") == 0) it.valInt = ds3scOutlineThicknessInt;
+            else if (strcmp(it.key, "fill_silhouette") == 0) it.valInt = ds3scOutlineFillSilhouette != 0;
+        }
+        if (strcmp(it.section, "PLAYER_OUTLINE") == 0 && strcmp(it.key, "enabled") == 0)
+            it.valInt = ds3scPlayerOutlineEnable != 0;
+#endif
+#if (defined(DS3SC_FEATURE_COUNTERS) && DS3SC_FEATURE_COUNTERS) || (defined(DS3SC_FEATURE_CONTADORES) && DS3SC_FEATURE_CONTADORES) || (defined(DS3SC_FEATURE_COMBAT_STATS) && DS3SC_FEATURE_COMBAT_STATS)
+        if (strcmp(it.section, "COUNTERS") == 0 && strcmp(it.key, "show_overlay") == 0) {
+            if (auto* ext = extensions::GetCountersInstance()) it.valInt = ext->IsOverlayVisible() ? 1 : 0;
+        }
+#endif
+#if defined(DS3SC_FEATURE_FPS_UNLOCK) && DS3SC_FEATURE_FPS_UNLOCK
+        if (strcmp(it.section, "FPS") == 0) {
+            if (auto* ext = extensions::GetFpsUnlockInstance()) {
+                if (strcmp(it.key, "unlock_fps") == 0) it.valInt = ext->IsUnlockEnabled() ? 1 : 0;
+                else if (strcmp(it.key, "target_fps") == 0) it.valInt = static_cast<int>(ext->GetTargetFps());
+                else if (strcmp(it.key, "vsync") == 0) it.valInt = ext->IsDisableVsync() ? 0 : 1;
+            }
+        }
+#endif
     }
+    UpdateItemDisplays();
 }
 
 float TitleMenu::GetTextWidth(const char* str, float scale) const noexcept {
@@ -1151,15 +1262,34 @@ HRESULT TitleMenu::Present(IDXGISwapChain* swapChain) noexcept {
 
     // Allow opening via F7 hotkey even if in game
     const auto now = GetTickCount64();
-    if ((GetAsyncKeyState(VK_F7) & 0x8000) && (now - lastInputTick_ > 300)) {
+    if (openRequested_.exchange(false)) SetModalOpen(true);
+    static bool wasF7Down = false;
+    const bool isF7Down = (GetAsyncKeyState(VK_F7) & 0x8000) != 0;
+    if (isF7Down && !wasF7Down && (now - lastInputTick_ > 300)) {
         SetModalOpen(!isModalOpen_);
         lastInputTick_ = now;
-        if (isModalOpen_) LoadSettingsFromIni();
     }
+    wasF7Down = isF7Down;
 
     if (!isModalOpen_) {
         return S_OK;
     }
+
+    // Poll once on the render thread. XInput hooks only suppress game input;
+    // they must not mutate items_ while this thread draws or reloads the menu.
+    if (s_origXInputGetState) {
+        bool connected = false;
+        for (DWORD user = 0; user < XUSER_MAX_COUNT; ++user) {
+            XINPUT_STATE state{};
+            if (s_origXInputGetState(user, &state) == ERROR_SUCCESS) {
+                ProcessGamepadInput(state.Gamepad.wButtons, state.Gamepad.sThumbLX, state.Gamepad.sThumbLY);
+                connected = true;
+                break;
+            }
+        }
+        if (!connected) gamepadInputReady_ = false;
+    }
+    if (!isModalOpen_) return S_OK;
 
     Microsoft::WRL::ComPtr<ID3D11Device> device;
     if (FAILED(swapChain->GetDevice(IID_PPV_ARGS(&device))) || !device) return S_OK;
@@ -1186,13 +1316,18 @@ HRESULT TitleMenu::Present(IDXGISwapChain* swapChain) noexcept {
     POINT mousePt{ -1, -1 };
     if (hWnd && GetCursorPos(&mousePt)) {
         ScreenToClient(hWnd, &mousePt);
+        RECT client{};
+        if (GetClientRect(hWnd, &client) && client.right > client.left && client.bottom > client.top) {
+            mousePt.x = MulDiv(mousePt.x, static_cast<int>(bbDesc.Width), client.right - client.left);
+            mousePt.y = MulDiv(mousePt.y, static_cast<int>(bbDesc.Height), client.bottom - client.top);
+        }
     }
     const float mx = static_cast<float>(mousePt.x);
     const float my = static_cast<float>(mousePt.y);
 
     static bool s_prevLButton = false;
     const bool curLButton = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
-    const bool mouseClicked = curLButton && !s_prevLButton && (now - modalOpenTick_ > 150);
+    bool mouseClicked = curLButton && !s_prevLButton && (now - modalOpenTick_ > 150);
     s_prevLButton = curLButton;
 
     static POINT s_lastMousePt{ -9999, -9999 };
@@ -1316,8 +1451,20 @@ HRESULT TitleMenu::Present(IDXGISwapChain* swapChain) noexcept {
     // (Native menu item 4 is now displayed as "Seamplus" by Dark Souls III itself)
     // =========================================================================
     if (isModalOpen_) {
+        const bool keyboardLeft = (GetAsyncKeyState(VK_LEFT) & 0x8000) ||
+                                  (GetAsyncKeyState('A') & 0x8000);
+        const bool keyboardRight = (GetAsyncKeyState(VK_RIGHT) & 0x8000) ||
+                                   (GetAsyncKeyState('D') & 0x8000) ||
+                                   (GetAsyncKeyState(VK_RETURN) & 0x8000) ||
+                                   (GetAsyncKeyState(VK_SPACE) & 0x8000);
+        if (!keyboardLeft) keyboardLeftHeld_ = false;
+        if (!keyboardRight) keyboardRightHeld_ = false;
         // Keyboard inputs for navigation
         if (now - lastInputTick_ > 150) {
+            const bool keyboardLeftPressed = keyboardLeft && !keyboardLeftHeld_;
+            const bool keyboardRightPressed = keyboardRight && !keyboardRightHeld_;
+            keyboardLeftHeld_ = keyboardLeft;
+            keyboardRightHeld_ = keyboardRight;
             if ((GetAsyncKeyState(VK_UP) & 0x8000) || (GetAsyncKeyState('W') & 0x8000)) {
                 usingGamepadOrKeyboard_ = true;
                 if (!items_.empty()) {
@@ -1342,45 +1489,20 @@ HRESULT TitleMenu::Present(IDXGISwapChain* swapChain) noexcept {
                     selectedItemIndex_ = next;
                 }
                 lastInputTick_ = now;
-            } else if ((GetAsyncKeyState(VK_LEFT) & 0x8000) || (GetAsyncKeyState('A') & 0x8000)) {
+            } else if (keyboardLeft) {
                 usingGamepadOrKeyboard_ = true;
                 if (selectedItemIndex_ < 0) selectedItemIndex_ = 0;
                 if (selectedItemIndex_ >= 0 && selectedItemIndex_ < static_cast<int>(items_.size())) {
                     auto& it = items_[selectedItemIndex_];
-                    if (it.type == 0) {
-                        it.valInt = (it.valInt == 0) ? 1 : 0;
-                    } else if (it.type == 1) {
-                        if (strcmp(it.key, "target_fps") == 0) {
-                            it.valInt = StepFpsPreset(it.valInt, false);
-                        } else if (strcmp(it.key, "lan_port") == 0) {
-                            it.valInt = std::max(it.minInt, it.valInt - 10);
-                        } else {
-                            it.valInt = std::max(it.minInt, it.valInt - it.stepInt);
-                        }
-                    }
-                    UpdateItemDisplays();
-                    ApplyLiveSettings();
+                    if (it.type == 1 || keyboardLeftPressed) AdjustItem(selectedItemIndex_, false);
                 }
                 lastInputTick_ = now;
-            } else if ((GetAsyncKeyState(VK_RIGHT) & 0x8000) || (GetAsyncKeyState('D') & 0x8000) ||
-                       (GetAsyncKeyState(VK_RETURN) & 0x8000) || (GetAsyncKeyState(VK_SPACE) & 0x8000)) {
+            } else if (keyboardRight) {
                 usingGamepadOrKeyboard_ = true;
                 if (selectedItemIndex_ < 0) selectedItemIndex_ = 0;
                 if (selectedItemIndex_ >= 0 && selectedItemIndex_ < static_cast<int>(items_.size())) {
                     auto& it = items_[selectedItemIndex_];
-                    if (it.type == 0) {
-                        it.valInt = (it.valInt == 0) ? 1 : 0;
-                    } else if (it.type == 1) {
-                        if (strcmp(it.key, "target_fps") == 0) {
-                            it.valInt = StepFpsPreset(it.valInt, true);
-                        } else if (strcmp(it.key, "lan_port") == 0) {
-                            it.valInt = std::min(it.maxInt, it.valInt + 10);
-                        } else {
-                            it.valInt = std::min(it.maxInt, it.valInt + it.stepInt);
-                        }
-                    }
-                    UpdateItemDisplays();
-                    ApplyLiveSettings();
+                    if (it.type == 1 || keyboardRightPressed) AdjustItem(selectedItemIndex_, true);
                 }
                 lastInputTick_ = now;
             } else if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) {
@@ -1441,26 +1563,16 @@ HRESULT TitleMenu::Present(IDXGISwapChain* swapChain) noexcept {
             }
 
             const bool isSelected = usingGamepadOrKeyboard_ && (static_cast<int>(i) == selectedItemIndex_);
-            const bool isHovered = (mx >= boxX + 16.0f && mx <= boxX + boxW - 16.0f &&
-                                    my >= itemY && my <= itemY + currentH);
+            const bool isHovered = !usingGamepadOrKeyboard_ && (mx >= boxX + 16.0f && mx <= boxX + boxW - 16.0f &&
+                                    my >= itemY && my < itemY + currentH);
+            if (isHovered) selectedItemIndex_ = static_cast<int>(i);
 
             if (isHovered && mouseClicked) {
                 usingGamepadOrKeyboard_ = false;
                 selectedItemIndex_ = static_cast<int>(i);
-                if (it.type == 0) {
-                    it.valInt = (it.valInt == 0) ? 1 : 0;
-                } else if (it.type == 1) {
-                    const bool clickRight = (mx > boxX + boxW - 120.0f);
-                    if (strcmp(it.key, "target_fps") == 0) {
-                        it.valInt = StepFpsPreset(it.valInt, clickRight);
-                    } else if (strcmp(it.key, "lan_port") == 0) {
-                        it.valInt = clickRight ? std::min(it.maxInt, it.valInt + 10) : std::max(it.minInt, it.valInt - 10);
-                    } else {
-                        it.valInt = clickRight ? std::min(it.maxInt, it.valInt + it.stepInt) : std::max(it.minInt, it.valInt - it.stepInt);
-                    }
-                }
-                UpdateItemDisplays();
-                ApplyLiveSettings();
+                const bool clickRight = (mx > boxX + boxW - 120.0f);
+                AdjustItem(static_cast<int>(i), clickRight);
+                mouseClicked = false;
             }
 
             const bool isHighlighted = isHovered || isSelected;

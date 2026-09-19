@@ -27,6 +27,14 @@ bool AllyOutlineExtension::Initialize() noexcept {
     }
     const int fallback = GetPrivateProfileIntA("OUTLINE", "show_fallback_markers", 1, iniPath);
     InterlockedExchange(&ds3scOutlineFallbackMarkers, fallback != 0 ? 1 : 0);
+    // Load saved render choices before installing the first Present hook.
+    // The menu only edits individual settings; opening it is not initialization.
+    InterlockedExchange(&ds3scOutlineEnable,
+        GetPrivateProfileIntA("OUTLINE", "show_ally_outline", 0, iniPath) != 0);
+    InterlockedExchange(&ds3scOutlineFillSilhouette,
+        GetPrivateProfileIntA("OUTLINE", "fill_silhouette", 1, iniPath) != 0);
+    InterlockedExchange(&ds3scOutlineThicknessInt,
+        std::clamp(static_cast<int>(GetPrivateProfileIntA("OUTLINE", "outline_thickness", 20, iniPath)), 10, 40));
 
     return render::D3D11HookManager::Instance().Install();
 }
