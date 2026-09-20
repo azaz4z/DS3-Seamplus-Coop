@@ -1,24 +1,27 @@
 # The Ashen Link: DS3 Coop
 
-A modular companion modification and enhancement suite for **Dark Souls III co-op** *(formerly known as DS3 Seamplus Co-op)*.
+A modular multiplayer modification and enhancement suite for **Dark Souls III**, based on the Seamless Co-op experience as an independent standalone version.
 
 ---
 
-## Features & Roadmap Status
+## Key Features
 
-| Component / Feature | Category | Status | Notes / Known Issues |
-| :--- | :--- | :--- | :--- |
-| **Custom Menu Integration** | UI / Core | **Working / Stable** | Native Scaleform button hook (RVA `0xEE1150`) with exact game button hitbox. Also accessible in-game via `F7`. TrueType typography with INI synchronization. |
-| **Companion Spawner (Ash Stone)** | Gameplay / AI | **Working** | Modular companion summon system (Ash Stone); functional companion NPC summoning. |
-| **Guest Bonfires Restoration** | World Fix | **Working / Patched** | Fixes bonfire checkpoint write-back (`+0xacc`) for guest players so resting and respawns work properly. |
-| **FPS Unlocker (Uncap 60 FPS)** | Performance / Engine | **Working / Stable** | Uncaps Dark Souls III native 60 FPS limit with customizable target framerate (144, 165, 240+ FPS), VSync toggle, and real-time F7 menu integration. |
-| **Combat Stat Counters** | Overlay / Stats | **Working / Stable** | Optional in-game HUD tracking session kills, deaths, and backstabs. |
-| **Ally Diamond Markers** | Render / UI | **Working / In Progress** | Real-time 3D overhead position markers for co-op allies; undergoing polish and refinement. |
-| **Ally Outlines & Silhouettes** | Render (D3D11) | **Working / In Progress** | Direct3D 11 shader pass for occluded silhouettes behind walls; functional, undergoing optimization. |
-| **Hit Synchronization** | Network / Combat | **Buggy / In Progress** | Damage registration and weapon hit verification across co-op peers; still exhibits bugs and desynchronization. |
-| **Curse-Rotted Greatwood Wipe Fix** | Boss Encounter | **Patched (Untested)** | Prevents infinite loading screen and host HUD lock on party wipe; multiplayer acceptance remains unverified. |
-| **High Lord Wolnir** | Boss Encounter | **Buggy / Pending Fix** | Arena boundary desynchronization and phase transition issues in multiplayer. |
-| **Fire Demon (Demon Ruins)** | Mini-Boss Encounter | **Buggy / Pending Fix** | Grab attack desynchronization and abnormal aggro drops in co-op sessions. |
+- **LAN Co-op Transport & Runtime Switching:** Fully functional peer-to-peer LAN multiplayer using direct UDP sockets (default port `27015`), local subnet beacon discovery, automatic port release on session dissolution, and live runtime switching between Steam Matchmaking and LAN mode.
+- **Custom Menu Integration:** Native Scaleform title menu button with game-accurate hitbox, plus in-game configuration modal accessible anytime via `F7`.
+- **FPS Unlocker (Uncap 60 FPS):** Removes the engine's hardcoded 60 FPS limit with customizable target framerate (144, 165, 240+ FPS) and optional VSync.
+- **Ally Outlines & Silhouettes:** Custom Direct3D 11 shader pass rendering real-time occluded silhouettes of party members behind walls and geometry.
+- **Ally Diamond Markers:** 3D overhead position indicators above co-op allies with customizable height offset and distance scaling.
+
+---
+
+## Project Status, Roadmap & Bug Tracker
+
+To keep this guide clear and organized, active task tracking and detailed bug reports are maintained in dedicated documents:
+
+| Document | Description | Direct Link |
+| :--- | :--- | :--- |
+| 📋 **Project Roadmap & Tasks** | Active milestones, short/medium/long-term development priorities, and planned features. | **[Open TODO.md](TODO.md)** |
+| 🐛 **Known Issues & Bug Tracker** | Detailed tracking of boss anomalies (Fire Demon, Dragonslayer Armour, Wolnir), hit sync notes, and reproduction details. | **[Open BUGS.md](BUGS.md)** |
 
 ---
 
@@ -105,7 +108,7 @@ python tools/build_binaries.py --without-ally-outline --with-ally-markers --with
 2. Extract all contents directly into your Dark Souls III **`Game\`** folder (where `DarkSoulsIII.exe` is located, e.g. `C:\Program Files (x86)\Steam\steamapps\common\DARK SOULS III\Game`):
    - `TheAshenLink.exe` -> `Game\TheAshenLink.exe`
    - `TheAshenLink\` -> `Game\TheAshenLink\` (contains `ds3sc.dll`, `ds3sc_companion.dll`, `ds3sc_settings.ini`, and `locale/`)
-   *(Backwards compatibility with existing `Game\SeamplusCoop\` and `Game\SeamlessCoop\` installations is automatically supported).*
+   *(Backwards compatibility with existing `Game\SeamlessCoop\` installations is automatically supported).*
 3. Configure your co-op password and settings in `TheAshenLink\ds3sc_settings.ini` (all players in your party must use the same password).
 4. Launch the game using **`TheAshenLink.exe`**.
 
@@ -115,16 +118,13 @@ python tools/build_binaries.py --without-ally-outline --with-ally-markers --with
 | :--- | :--- | :--- |
 | **Title Menu (Option 4)** | **The Ashen Link Settings** | Open the in-game settings modal directly from the main title screen. |
 | **F7** | **Toggle Settings Menu** | Open / close the interactive mod settings menu anytime during gameplay. |
-| **F8** | **Toggle Stat Counters** | Show or hide the on-screen session counter HUD (kills, deaths, backstabs). |
-| **F9** | **Reset Stat Counters** | Reset session statistics back to zero. |
-| **Ash Stone** (Inventory) | **Companion Summon** | Summon or dismiss your modular AI co-op companion. |
 
 ---
 
 ## License, Credits & Disclaimers
 
-- **Project Identity & Rebranding (Formerly *DS3 Seamplus Co-op*):** This project was originally developed under the working title **DS3 Seamplus Co-op** (hence historical folder names like `SeamplusCoop\`, DLL names like `ds3sc.dll`, and repository naming). It was rebranded to **The Ashen Link: DS3 Coop** to establish a distinct, standalone identity and eliminate any confusion with LukeYui's original closed-source mod, while maintaining full backwards compatibility with existing `SeamplusCoop\` and `SeamlessCoop\` installation structures.
-- **Original Concept & Attribution:** All credit and appreciation go to **LukeYui / yuiamoroll** for pioneering the [Dark Souls 3 Seamless Co-op](https://github.com/yuiamoroll/DarkSouls3SeamlessCoopRelease) concept. This project is an independent community effort inspired by that vision and is in no way affiliated with, endorsed by, or supported by LukeYui.
+- **Project Origins & Independence:** This project is an independent standalone version based on the original **Dark Souls 3 Seamless Co-op** experience. It is an independent community effort and is in no way affiliated with, endorsed by, or supported by LukeYui.
+- **Original Concept & Attribution:** All credit and appreciation go to **LukeYui / yuiamoroll** for pioneering the [Dark Souls 3 Seamless Co-op](https://github.com/yuiamoroll/DarkSouls3SeamlessCoopRelease) concept.
 - **Clean-Room Reimplementation:** Because LukeYui's mod is closed-source and its source code was never publicly released, **The Ashen Link: DS3 Coop** is a 100% independent clean-room reimplementation developed from the ground up using reverse engineering, custom memory hooks, and community research. No proprietary binaries, decompiled assets, or closed-source code from LukeYui's original mod are copied, bundled, or redistributed.
 - **AI-Assisted Development:** Modern AI developer tooling was utilized throughout development to assist with reverse-engineering analysis, debugging, refactoring, and documentation. The project is 100% open-source, fully transparent, and welcomes community audits, testing, and pull requests.
 - **Third-Party Libraries:** Uses [MinHook](https://github.com/TsudaKageyu/minhook) for API redirection and runtime hooking.
