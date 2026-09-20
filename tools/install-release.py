@@ -15,18 +15,26 @@ def install(game: Path, release: Path):
     release = release.resolve(strict=True)
     if not (game / "DarkSoulsIII.exe").is_file():
         raise RuntimeError(f"DarkSoulsIII.exe does not exist in {game}")
-    manifest = json.loads((release / "manifest.json").read_text(encoding="utf-8"))
     launcher_name = "TheAshenLink.exe" if (release / "TheAshenLink.exe").is_file() else "ds3sc_launcher.exe"
-    core_required = {launcher_name, f"{mod_folder}/ds3sc.dll", f"{mod_folder}/ds3sc_settings.ini"}
-    if not core_required.issubset(manifest):
-        missing = core_required - set(manifest.keys())
-        raise RuntimeError(f"The manifest does not contain core essential files: {missing}")
-    for relative, expected in manifest.items():
-        source = (release / relative).resolve()
-        if not source.is_relative_to(release):
-            raise RuntimeError("Path outside of release in manifest")
-        if hashlib.sha256(source.read_bytes()).hexdigest() != expected:
-            raise RuntimeError(f"Modified or incomplete file: {relative}")
+    mod_folder = "TheAshenLink" if (release / "TheAshenLink").is_dir() else ("SeamplusCoop" if (release / "SeamplusCoop").is_dir() else "SeamlessCoop")
+    manifest_path = release / "manifest.json"
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        core_required = {launcher_name, f"{mod_folder}/ds3sc.dll", f"{mod_folder}/ds3sc_settings.ini"}
+        if not core_required.issubset(manifest):
+            missing = core_required - set(manifest.keys())
+            raise RuntimeError(f"The manifest does not contain core essential files: {missing}")
+        for relative, expected in manifest.items():
+            source = (release / relative).resolve()
+            if not source.is_relative_to(release):
+                raise RuntimeError("Path outside of release in manifest")
+            if hashlib.sha256(source.read_bytes()).hexdigest() != expected:
+                raise RuntimeError(f"Modified or incomplete file: {relative}")
+    else:
+        core_files = [release / launcher_name, release / mod_folder / "ds3sc.dll", release / mod_folder / "ds3sc_settings.ini"]
+        for f in core_files:
+            if not f.is_file():
+                raise RuntimeError(f"Missing core essential file in release: {f}")
     processes = subprocess.check_output(
         ["tasklist", "/FI", "IMAGENAME eq DarkSoulsIII.exe", "/FO", "CSV", "/NH"], text=True)
     if '"DarkSoulsIII.exe"' in processes:

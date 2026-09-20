@@ -123,6 +123,8 @@ def compute_sha256(path: Path) -> str:
         return hashlib.file_digest(f, "sha256").hexdigest()
 
 def make_menu_label(version: str, author: str, release_id: str) -> str:
+    if release_id:
+        return f"The Ashen Link ({release_id[:7]})"
     return "The Ashen Link"
 
 def apply_label(dll_path: Path, label: str):
@@ -166,7 +168,7 @@ def apply_folder_name(dll_path: Path, folder_name: str = "TheAshenLink"):
     raise RuntimeError(f"Could not find folder name target in {dll_path.name}")
 
 def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_build: bool = False,
-                           run_tests: bool = False, log_fn = print, progress_fn = None) -> Path:
+                           run_tests: bool = False, create_zip: bool = False, log_fn = print, progress_fn = None) -> Path:
     if not release_id:
         release_id = f"{secrets.randbelow(900000000) + 100000000:09d}"
 
@@ -330,8 +332,8 @@ def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_
     patched_sha = compute_sha256(patched_dll)
     log_fn(f"      ds3sc.dll ready: SHA-256 = {patched_sha}")
 
-    # 6. Deploy release structure and package
-    report_step(6, 6, "Deploying files and packaging ZIP...")
+    # 6. Deploy release structure
+    report_step(6, 6, "Deploying release files...")
     target_launcher = output_dir / "TheAshenLink.exe"
     shutil.copy2(launcher_src, target_launcher)
     log_fn(f"      + {target_launcher.name}")
@@ -441,35 +443,16 @@ def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_
     if minhook_lic.is_file():
         shutil.copy2(minhook_lic, licenses / "MinHook.txt")
 
-    # Manifest and metadata
-    packaged_files = {}
-    for item in sorted(output_dir.rglob("*")):
-        if item.is_file() and not item.name.endswith(".zip"):
-            rel = item.relative_to(output_dir).as_posix()
-            packaged_files[rel] = compute_sha256(item)
-
-    (output_dir / "manifest.json").write_text(json.dumps(packaged_files, indent=2), encoding="utf-8")
-
-    modules_metadata = {
-        "release_id": release_id,
-        "release_name": release_name,
-        "version": DEFAULT_VERSION_BASE,
-        "author": DEFAULT_AUTHOR,
-        "built_at": datetime.now().isoformat(),
-        "modules": selected_modules,
-        "files": packaged_files
-    }
-    (output_dir / "release_modules.json").write_text(json.dumps(modules_metadata, indent=2), encoding="utf-8")
-
-    # Compress ZIP
-    zip_path = output_dir / f"{release_name}.zip"
-    log_fn(f"\n      Compressing release into {zip_path.name}...")
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for item in sorted(output_dir.rglob("*")):
-            if item.is_file() and item != zip_path:
-                rel = item.relative_to(output_dir)
-                zf.write(item, arcname=str(rel))
-    log_fn(f"      + [ZIP] {zip_path.name} ({zip_path.stat().st_size:,} bytes)")
+    # Optional ZIP compression
+    if create_zip:
+        zip_path = output_dir / f"{release_name}.zip"
+        log_fn(f"\n      Compressing release into {zip_path.name}...")
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for item in sorted(output_dir.rglob("*")):
+                if item.is_file() and item != zip_path:
+                    rel = item.relative_to(output_dir)
+                    zf.write(item, arcname=str(rel))
+        log_fn(f"      + [ZIP] {zip_path.name} ({zip_path.stat().st_size:,} bytes)")
 
     # Atomic deployment to release/
     previous = ROOT / "build/backups" / ("release-" + datetime.now().strftime("%Y%m%d-%H%M%S-%f"))
@@ -533,10 +516,11 @@ def run_pyqt_gui(initial_config: dict = None, initial_id: str = None):
                     release_id=self.rel_id,
                     skip_build=self.skip,
                     run_tests=self.run_tests,
+                    create_zip=False,
                     log_fn=self.log_signal.emit,
                     progress_fn=self.progress_signal.emit
                 )
-                self.finished_signal.emit(True, "Release packaged successfully in /release.")
+                self.finished_signal.emit(True, "Release generated successfully in /release.")
             except Exception as e:
                 self.log_signal.emit(f"\n[CRITICAL ERROR] {e}")
                 self.finished_signal.emit(False, str(e))
@@ -788,7 +772,7 @@ def run_pyqt_gui(initial_config: dict = None, initial_id: str = None):
             actions_layout = QHBoxLayout()
             actions_layout.setSpacing(10)
 
-            self.btn_build = QPushButton("🔨 BUILD & PACKAGE RELEASE")
+            self.btn_build = QPushButton("🔨 BUILD RELEASE")
             self.btn_build.setObjectName("btn_build")
             self.btn_build.clicked.connect(self.start_build)
             actions_layout.addWidget(self.btn_build, stretch=2)
@@ -837,7 +821,7 @@ def run_pyqt_gui(initial_config: dict = None, initial_id: str = None):
 
         def build_finished(self, success: bool, msg: str):
             self.btn_build.setEnabled(True)
-            self.btn_build.setText("🔨 BUILD & PACKAGE RELEASE")
+            self.btn_build.setText("🔨 BUILD RELEASE")
 
             if success:
                 self.progress_bar.setValue(100)
@@ -879,6 +863,8 @@ def parse_args():
                         help="Run full Unicorn integration test suite (adds ~32s)")
     parser.add_argument("--skip-tests", dest="run_tests", action="store_false",
                         help="Skip Unicorn emulation tests (default)")
+    parser.add_argument("--create-zip", "--zip", dest="create_zip", action="store_true", default=False,
+                        help="Package the release into a .zip archive as well")
     parser.add_argument("--gui", action="store_true", help="Force opening the PyQt GUI")
     parser.add_argument("--cli", action="store_true", help="Run in command-line mode without GUI")
     parser.add_argument("--list-modules", action="store_true", help="List all available modules")
@@ -924,7 +910,13 @@ def main():
             config[m.id] = val
 
     release_id = args.opt_id or args.pos_id
-    build_release_pipeline(config, release_id=release_id, skip_build=args.skip_build, run_tests=args.run_tests)
+    build_release_pipeline(
+        config,
+        release_id=release_id,
+        skip_build=args.skip_build,
+        run_tests=args.run_tests,
+        create_zip=args.create_zip
+    )
 
 if __name__ == "__main__":
     main()

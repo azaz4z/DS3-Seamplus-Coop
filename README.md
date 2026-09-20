@@ -1,6 +1,6 @@
 # The Ashen Link: DS3 Coop
 
-A modular companion modification and enhancement suite for **Dark Souls III co-op**.
+A modular companion modification and enhancement suite for **Dark Souls III co-op** *(formerly known as DS3 Seamplus Co-op)*.
 
 ---
 
@@ -123,8 +123,9 @@ python tools/build_binaries.py --without-ally-outline --with-ally-markers --with
 
 ## License, Credits & Disclaimers
 
-- **Original Concept & Attribution:** All credit and appreciation go to **LukeYui / yuiamoroll** for pioneering the [Dark Souls 3 Seamless Co-op](https://github.com/yuiamoroll/DarkSouls3SeamlessCoopRelease) concept. This project is an independent, unofficial community effort and is in no way affiliated with, endorsed by, or supported by LukeYui.
-- **Clean-Room Reimplementation:** The original mod's source code was never publicly released. The Ashen Link: DS3 Coop is an independent clean-room reimplementation developed from the ground up using reverse engineering, custom memory hooks, and community research. No proprietary binaries or closed-source code from the original mod are decompiled, copied, or redistributed.
+- **Project Identity & Rebranding (Formerly *DS3 Seamplus Co-op*):** This project was originally developed under the working title **DS3 Seamplus Co-op** (hence historical folder names like `SeamplusCoop\`, DLL names like `ds3sc.dll`, and repository naming). It was rebranded to **The Ashen Link: DS3 Coop** to establish a distinct, standalone identity and eliminate any confusion with LukeYui's original closed-source mod, while maintaining full backwards compatibility with existing `SeamplusCoop\` and `SeamlessCoop\` installation structures.
+- **Original Concept & Attribution:** All credit and appreciation go to **LukeYui / yuiamoroll** for pioneering the [Dark Souls 3 Seamless Co-op](https://github.com/yuiamoroll/DarkSouls3SeamlessCoopRelease) concept. This project is an independent community effort inspired by that vision and is in no way affiliated with, endorsed by, or supported by LukeYui.
+- **Clean-Room Reimplementation:** Because LukeYui's mod is closed-source and its source code was never publicly released, **The Ashen Link: DS3 Coop** is a 100% independent clean-room reimplementation developed from the ground up using reverse engineering, custom memory hooks, and community research. No proprietary binaries, decompiled assets, or closed-source code from LukeYui's original mod are copied, bundled, or redistributed.
 - **AI-Assisted Development:** Modern AI developer tooling was utilized throughout development to assist with reverse-engineering analysis, debugging, refactoring, and documentation. The project is 100% open-source, fully transparent, and welcomes community audits, testing, and pull requests.
 - **Third-Party Libraries:** Uses [MinHook](https://github.com/TsudaKageyu/minhook) for API redirection and runtime hooking.
 
