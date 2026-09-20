@@ -60,13 +60,18 @@ bool LanTransport::Initialize(uint16_t localPort, bool isHost) noexcept {
     sockaddr_in bindAddr{};
     bindAddr.sin_family = AF_INET;
     bindAddr.sin_addr.s_addr = INADDR_ANY;
-    bindAddr.sin_port = htons(isHost ? localPort : 0);
+    const uint16_t targetPort = (localPort != 0) ? localPort : kDefaultLanPort;
+    bindAddr.sin_port = htons(targetPort);
 
     if (bind(socket_, reinterpret_cast<sockaddr*>(&bindAddr), sizeof(bindAddr)) == SOCKET_ERROR) {
-        closesocket(socket_);
-        socket_ = INVALID_SOCKET;
-        WSACleanup();
-        return false;
+        // Fall back to dynamic port only if preferred port cannot be bound
+        bindAddr.sin_port = 0;
+        if (bind(socket_, reinterpret_cast<sockaddr*>(&bindAddr), sizeof(bindAddr)) == SOCKET_ERROR) {
+            closesocket(socket_);
+            socket_ = INVALID_SOCKET;
+            WSACleanup();
+            return false;
+        }
     }
 
     sockaddr_in actualAddr{};

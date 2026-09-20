@@ -153,6 +153,7 @@ def build_extensions(cl_exe: str, enable_outline: bool, enable_player_outline: b
 
 
     if needs_d3d11:
+        defines.append("/DDS3SC_HAS_D3D11_HOOK=1")
         sources.append(ROOT / "src/render/d3d11_hook.cpp")
         sources.append(ROOT / "src/render/title_menu.cpp")
         libs.extend(["d3d11.lib", "dxgi.lib", "d3dcompiler.lib", "dinput8.lib", "dxguid.lib"])

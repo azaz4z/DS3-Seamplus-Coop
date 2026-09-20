@@ -33,6 +33,7 @@ public:
     static D3D11HookManager& Instance() noexcept;
 
     bool Install() noexcept;
+    void MaintainPresentationHooks() noexcept;
     void Uninstall() noexcept;
     [[nodiscard]] bool IsInstalled() const noexcept { return installed_.load(); }
 

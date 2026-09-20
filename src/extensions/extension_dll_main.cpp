@@ -2,6 +2,9 @@
 #define NOMINMAX
 #include <windows.h>
 #include "extension_manager.h"
+#if defined(DS3SC_HAS_D3D11_HOOK)
+#include "../render/d3d11_hook.h"
+#endif
 
 #if defined(DS3SC_FEATURE_ALLY_OUTLINE) && DS3SC_FEATURE_ALLY_OUTLINE
 #include "ally_outline/ally_outline_extension.h"
@@ -117,6 +120,9 @@ DWORD WINAPI ExtensionWorker(void*) {
 
                 // Periodic update loop for extension OnTick() (~30 Hz)
                 while (true) {
+#if defined(DS3SC_HAS_D3D11_HOOK)
+                    ds3sc::render::D3D11HookManager::Instance().MaintainPresentationHooks();
+#endif
                     ds3sc::extensions::ExtensionManager::Instance().OnTick();
                     Sleep(33);
                 }

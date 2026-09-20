@@ -2,6 +2,10 @@
 #include "../src/render/title_menu.h"
 #include <cstdio>
 #include <wrl/client.h>
+#include <array>
+#include <cstring>
+
+static unsigned menuPresentCount = 0;
 
 namespace ds3sc::render {
 TitleMenu::TitleMenu() = default;
@@ -9,11 +13,12 @@ TitleMenu& TitleMenu::Instance() noexcept {
     static TitleMenu s;
     return s;
 }
-HRESULT TitleMenu::Present(IDXGISwapChain*) noexcept { return S_OK; }
+HRESULT TitleMenu::Present(IDXGISwapChain*) noexcept { ++menuPresentCount; return S_OK; }
 void TitleMenu::Reset() noexcept {}
 }
 
 extern "C" volatile LONG ds3scAllyDeferredDraws, ds3scAllyMatchedDraws;
+extern "C" volatile LONG ds3scD3D11HookRepairs;
 
 int main() {
     using Microsoft::WRL::ComPtr;
@@ -38,6 +43,8 @@ int main() {
     void** table = *reinterpret_cast<void***>(swap.Get());
     void* presentBefore = table[8];
     void* resizeBefore = table[13];
+    std::array<unsigned char, 5> originalEntry{};
+    std::memcpy(originalEntry.data(), presentBefore, originalEntry.size());
     auto& hooks = ds3sc::render::D3D11HookManager::Instance();
     if (!hooks.Install()) return 3;
     // Shared vtables must remain intact: overwriting them caused the recursive
@@ -48,6 +55,20 @@ int main() {
         if (FAILED(swap->Present(0, 0))) return 6;
     }
     if (ds3scD3D11Hooked != 1) return 7;
+    // Reproduce the live failure: an overlay restores the original entry,
+    // while MinHook continues reporting the detour as enabled.
+    DWORD previousProtection = 0;
+    if (!VirtualProtect(presentBefore, originalEntry.size(), PAGE_EXECUTE_READWRITE, &previousProtection)) return 15;
+    std::memcpy(presentBefore, originalEntry.data(), originalEntry.size());
+    VirtualProtect(presentBefore, originalEntry.size(), previousProtection, &previousProtection);
+    FlushInstructionCache(GetCurrentProcess(), presentBefore, originalEntry.size());
+    const auto menuBeforeRepair = menuPresentCount;
+    if (FAILED(swap->Present(0, 0)) || menuPresentCount != menuBeforeRepair) return 16;
+    hooks.MaintainPresentationHooks();
+    if (ds3scD3D11HookRepairs != 1) return 17;
+    if (FAILED(swap->Present(0, 0)) || menuPresentCount != menuBeforeRepair + 1) return 18;
+    hooks.MaintainPresentationHooks();
+    if (ds3scD3D11HookRepairs != 1) return 19;
     ComPtr<ID3D11DeviceContext> deferred;
     if (FAILED(device->CreateDeferredContext(0, &deferred))) return 12;
     const auto matchedBefore = ds3scAllyMatchedDraws;
@@ -70,6 +91,6 @@ int main() {
     context.Reset();
     device.Reset();
     DestroyWindow(window);
-    std::puts("PASS: 120 hooked Presents, deferred draw detours, stable vtables, reinstall, resize and clean unhook.");
+    std::puts("PASS: hooked Presents/menu dispatch, late overlay restoration/recovery, deferred draws, stable vtables, resize and clean unhook.");
     return 0;
 }

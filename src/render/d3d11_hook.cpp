@@ -46,6 +46,41 @@ ExecuteFn originalExecute{};
 std::mutex installMutex;
 std::recursive_mutex allyModelMutex;
 std::vector<void*> ownedHooks;
+struct PresentationHook {
+    void* target = nullptr;
+    std::array<unsigned char, 5> originalBytes{};
+};
+std::array<PresentationHook, 2> presentationHooks{};
+bool ReadPresentationEntry(void* target, std::array<unsigned char, 5>& bytes) noexcept {
+    if (!target) return false;
+    __try { std::memcpy(bytes.data(), target, bytes.size()); return true; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+void* ResolvePresentationEntry(void* entry) noexcept {
+    // Steam can temporarily restore/reapply the DXGI entry on every Present.
+    // Hook the existing forwarding destination, so that operation cannot
+    // erase our detour. Never change a shared COM vtable or bypass the overlay.
+    std::array<void*, 8> visited{};
+    __try {
+        for (std::size_t depth = 0; depth < visited.size(); ++depth) {
+            if (!entry) return nullptr;
+            for (std::size_t i = 0; i < depth; ++i) if (visited[i] == entry) return nullptr;
+            visited[depth] = entry;
+            const auto* bytes = static_cast<const unsigned char*>(entry);
+            std::int32_t displacement = 0;
+            if (bytes[0] == 0xe9) {
+                std::memcpy(&displacement, bytes + 1, sizeof(displacement));
+                entry = const_cast<unsigned char*>(bytes + 5 + displacement);
+            } else if (bytes[0] == 0xff && bytes[1] == 0x25) {
+                std::memcpy(&displacement, bytes + 2, sizeof(displacement));
+                std::memcpy(&entry, bytes + 6 + displacement, sizeof(entry));
+            } else {
+                return entry;
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) { return nullptr; }
+    return nullptr;
+}
 bool ownMinHook = false;
 thread_local bool drawingAlly = false, drawingLocal = false, replaying = false;
 std::atomic<std::uint64_t> frameNumber{1};
@@ -65,6 +100,8 @@ __declspec(dllexport) volatile LONG ds3scPlayerOutlineEnable = 0;
 __declspec(dllexport) volatile LONG ds3scDiamondMarkersEnable = 1;
 __declspec(dllexport) volatile LONG ds3scDisableVsync = 0;
 __declspec(dllexport) volatile LONG ds3scD3D11Hooked = 0;
+__declspec(dllexport) volatile LONG ds3scD3D11PresentCount = 0;
+__declspec(dllexport) volatile LONG ds3scD3D11HookRepairs = 0;
 __declspec(dllexport) volatile LONG ds3scAllyDrawsCount = 0;
 __declspec(dllexport) volatile LONG ds3scLocalDrawsCount = 0;
 __declspec(dllexport) volatile LONG ds3scAllyDispatchCalls = 0;
@@ -568,6 +605,7 @@ void Log() {
 }
 HRESULT STDMETHODCALLTYPE Present(IDXGISwapChain* swap, UINT sync, UINT flags) {
     if (flags & DXGI_PRESENT_TEST) return originalPresent(swap, sync, flags);
+    InterlockedIncrement(&ds3scD3D11PresentCount);
     const auto currentFrame = frameNumber.fetch_add(1, std::memory_order_acq_rel) + 1;
     ds3scD3D11Hooked = 1;
     if (!ds3scRenderTrace.immediateContext) {
@@ -626,11 +664,31 @@ void RemoveOwnedHooks() {
     for (auto* target : ownedHooks) MH_DisableHook(target);
     for (auto* target : ownedHooks) MH_RemoveHook(target);
     ownedHooks.clear();
+    presentationHooks = {};
     if (ownMinHook) MH_Uninitialize();
     ownMinHook = false;
 }
 }
 D3D11HookManager& D3D11HookManager::Instance() noexcept { static D3D11HookManager value; return value; }
+void D3D11HookManager::MaintainPresentationHooks() noexcept {
+    // Called on the extension worker, never from inside a Present detour.
+    std::lock_guard<std::mutex> lock(installMutex);
+    if (!installed_.load()) return;
+    for (const auto& hook : presentationHooks) {
+        std::array<unsigned char, 5> current{};
+        if (!ReadPresentationEntry(hook.target, current)) continue;
+        // Some overlays restore the exact pre-hook entry during late startup.
+        // MinHook still thinks our detour is enabled in that case. Repair only
+        // that exact restoration: an unknown third-party patch is left alone.
+        if (current != hook.originalBytes) continue;
+        const auto disabled = MH_DisableHook(hook.target);
+        if (disabled != MH_OK && disabled != MH_ERROR_DISABLED) continue;
+        if (MH_EnableHook(hook.target) == MH_OK) {
+            InterlockedIncrement(&ds3scD3D11HookRepairs);
+            OutputDebugStringA("[ds3sc-render] Restored presentation detour after original entry was reinstated.\n");
+        }
+    }
+}
 bool D3D11HookManager::Install() noexcept {
     std::lock_guard<std::mutex> lock(installMutex);
     if (installed_.load()) return true;
@@ -648,9 +706,12 @@ bool D3D11HookManager::Install() noexcept {
         D3D11_SDK_VERSION,&desc,&swap,&device,nullptr,&contexts[0]);
     if (FAILED(hr) || FAILED(device->CreateDeferredContext(0, &contexts[1]))) { DestroyWindow(window); return false; }
     auto** table = *reinterpret_cast<void***>(swap.Get());
+    void* presentEntry = ResolvePresentationEntry(table[8]);
+    void* resizeEntry = ResolvePresentationEntry(table[13]);
+    if (!presentEntry || !resizeEntry) { DestroyWindow(window); return false; }
     std::vector<Hook> hooks{
-        {table[8],reinterpret_cast<void*>(&Present),reinterpret_cast<void**>(&originalPresent)},
-        {table[13],reinterpret_cast<void*>(&Resize),reinterpret_cast<void**>(&originalResize)}};
+        {presentEntry,reinterpret_cast<void*>(&Present),reinterpret_cast<void**>(&originalPresent)},
+        {resizeEntry,reinterpret_cast<void*>(&Resize),reinterpret_cast<void**>(&originalResize)}};
 #if DS3SC_FEATURE_OUTLINE_CAPTURE
     for (int k=0;k<2;++k) {
         table = *reinterpret_cast<void***>(contexts[k].Get());
@@ -715,6 +776,14 @@ bool D3D11HookManager::Install() noexcept {
             *hook.original=*hooks[j].original; duplicate=true; break;
         }
         if (duplicate) continue;
+        if (i < presentationHooks.size()) {
+            auto& presentation = presentationHooks[i];
+            if (!ReadPresentationEntry(hook.target, presentation.originalBytes)) {
+                ready = false;
+                break;
+            }
+            presentation.target = hook.target;
+        }
         if (MH_CreateHook(hook.target,hook.replacement,hook.original)!=MH_OK) { ready=false; break; }
         ownedHooks.push_back(hook.target);
     }
