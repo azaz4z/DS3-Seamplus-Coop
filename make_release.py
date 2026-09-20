@@ -98,6 +98,20 @@ MODULES = [
         description="Unlocks Dark Souls III's native 60 FPS cap with configurable target framerate (144, 165, 240+ FPS) and optional VSync control.",
         default=True
     ),
+    ReleaseModule(
+        id="anim_fix",
+        name="Animation & Locomotion Repair",
+        category="Native C++ Extension (Animation)",
+        description="Fixes stuck locomotion animations (skating/sliding across ground without moving legs) and unblocks ending cutscene stalls (such as the Fire Keeper extinguishing the flame).",
+        default=True
+    ),
+    ReleaseModule(
+        id="cutscene_fix",
+        name="Cutscene Ally Isolation (Hide Allies in Cinematics)",
+        category="Native C++ Extension (Cutscenes/Visual)",
+        description="Automatically isolates and hides co-op allies, diamond markers, and outlines during cutscenes to prevent camera obstruction and scene disruptions.",
+        default=True
+    ),
 ]
 
 
@@ -200,7 +214,9 @@ def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_
                             selected_modules.get("hit_sync", False) or
                             selected_modules.get("counters", False) or
                             selected_modules.get("contadores", False) or
-                            selected_modules.get("fps_unlock", False))
+                            selected_modules.get("fps_unlock", False) or
+                            selected_modules.get("anim_fix", False) or
+                            selected_modules.get("cutscene_fix", False))
     greatwood_enabled = selected_modules.get("greatwood_patch", False)
     bonfire_enabled = selected_modules.get("guest_bonfires", False)
 
@@ -242,6 +258,16 @@ def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_
             build_cmd.append("--with-fps-unlock")
         else:
             build_cmd.append("--without-fps-unlock")
+
+        if selected_modules.get("anim_fix", False):
+            build_cmd.append("--with-anim-fix")
+        else:
+            build_cmd.append("--without-anim-fix")
+
+        if selected_modules.get("cutscene_fix", False):
+            build_cmd.append("--with-cutscene-fix")
+        else:
+            build_cmd.append("--without-cutscene-fix")
 
         build_proc = subprocess.run(build_cmd, cwd=ROOT, capture_output=True, text=True)
         if build_proc.returncode != 0:

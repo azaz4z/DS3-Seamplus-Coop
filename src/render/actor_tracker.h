@@ -167,6 +167,7 @@ public:
     ) const noexcept;
 
     [[nodiscard]] bool IsGameMenuOpen() const noexcept;
+    [[nodiscard]] bool IsInCutscene() const noexcept;
     [[nodiscard]] bool IsActorOccluded(const TrackedActor& a) const noexcept;
     [[nodiscard]] bool IsRayOccludedByLocalPlayer(const float targetWorldPos[3]) const noexcept;
 

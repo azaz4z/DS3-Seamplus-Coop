@@ -82,6 +82,17 @@ inline void MakeAllyPersistentlyVisible(std::uintptr_t entity) noexcept {
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
+// Suppresses ally rendering during cutscenes and cinematic sequences so allies
+// do not intrude on cutscene cameras, stay frozen in the background, or block event animations.
+inline void HideAllyFromCutscene(std::uintptr_t entity) noexcept {
+    if (!entity || !IsValidUserPointer(reinterpret_cast<void*>(entity), 0xc40)) return;
+    __try {
+        // Clear CPU visibility bits (+0xc3c for SprjModelDrawEntity, +0xbb0 for SprjAsmModelDrawEntity)
+        *reinterpret_cast<volatile std::uint8_t*>(entity + 0xc3c) &= static_cast<std::uint8_t>(~1);
+        *reinterpret_cast<volatile std::uint8_t*>(entity + 0xbb0) &= static_cast<std::uint8_t>(~1);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
 // Complete RAII override during Model() (0xd06e10 / 0xd00200) execution for an ally.
 // Guarantees all internal gates evaluate to true (taking the fast path) and restores original values upon exit.
 class ScopedAllyModelOverride final {

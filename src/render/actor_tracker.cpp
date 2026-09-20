@@ -3,6 +3,7 @@
 #include "ally_pass_visibility.h"
 #include "d3d11_hook.h"
 #include "title_menu.h"
+#include "marker_visibility.h"
 
 #include <cmath>
 #include <cstdio>
@@ -18,7 +19,6 @@ namespace {
 
 constexpr std::uintptr_t kCandidateWorldChrManRva = 0x477FDB8u;
 constexpr std::uintptr_t kCandidateFieldAreaRva = 0x475ABD0u;
-constexpr std::uintptr_t kCandidateMenuManRva = 0x4763258u;
 constexpr std::uintptr_t kCandidateNewMenuSystemRva = 0x478DA40u;
 
 struct CompanionExportStatus {
@@ -623,19 +623,29 @@ void ActorTracker::Update(std::uint64_t frameNumber) noexcept {
         }
         if (fastTotal < kMaxFastAllies) fastList[fastTotal++] = e;
     };
+    const bool inCutscene = IsInCutscene();
     for (const auto& a : actors_) {
         if (a.isAlly) {
-            if (a.drawEntity) {
-                addFast(a.drawEntity);
-                MakeAllyPersistentlyVisible(a.drawEntity);
-            }
-            if (a.asmEntity) {
-                addFast(a.asmEntity);
-                MakeAllyPersistentlyVisible(a.asmEntity);
+            if (inCutscene) {
+                // Suppress ally rendering during cutscenes so allies do not intrude
+                // on the cinematic camera or break ending/boss cutscenes.
+                if (a.drawEntity) HideAllyFromCutscene(a.drawEntity);
+                if (a.asmEntity) HideAllyFromCutscene(a.asmEntity);
+            } else {
+                if (a.drawEntity) {
+                    addFast(a.drawEntity);
+                    MakeAllyPersistentlyVisible(a.drawEntity);
+                }
+                if (a.asmEntity) {
+                    addFast(a.asmEntity);
+                    MakeAllyPersistentlyVisible(a.asmEntity);
+                }
             }
         } else if (a.isLocal && includeLocal) {
-            if (a.drawEntity) MakeAllyPersistentlyVisible(a.drawEntity);
-            if (a.asmEntity) MakeAllyPersistentlyVisible(a.asmEntity);
+            if (!inCutscene) {
+                if (a.drawEntity) MakeAllyPersistentlyVisible(a.drawEntity);
+                if (a.asmEntity) MakeAllyPersistentlyVisible(a.asmEntity);
+            }
         }
     }
     for (std::size_t i = 0; i < fastTotal; ++i) {
@@ -897,9 +907,25 @@ bool ActorTracker::ProjectWorldToScreen(
     return true;
 }
 
+bool ActorTracker::IsInCutscene() const noexcept {
+    auto gameBase = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(L"DarkSoulsIII.exe"));
+    if (!gameBase) gameBase = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
+    if (!gameBase) return false;
+
+    std::uintptr_t newMenuSystem = 0;
+    if (SafeRead(gameBase + kCandidateNewMenuSystemRva, newMenuSystem) && newMenuSystem != 0) {
+        // Offset 0x3084 in NewMenuSystem: 1 = cutscene active, 0 = normal gameplay
+        std::uint8_t inCutscene = 0;
+        if (SafeRead(newMenuSystem + 0x3084u, inCutscene) && inCutscene != 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool ActorTracker::IsGameMenuOpen() const noexcept {
 #if !defined(DS3SC_STANDALONE_TEST)
-    // Check mod's own config/settings modal overlay (F11)
+    // Check mod's own config/settings modal overlay (F11/F7)
     if (TitleMenu::Instance().IsModalOpen()) return true;
 #endif
 
@@ -922,17 +948,11 @@ bool ActorTracker::IsGameMenuOpen() const noexcept {
         return true;
     }
 
-    // MenuMan + 0x1D50 is the active-menu pointer for the supported DS3 build.
-    // If the executable layout differs, SafeRead fails and only the marker
-    // suppression is skipped; it cannot affect the render target.
-    std::uintptr_t menuMan = 0;
-    std::uintptr_t activeMenu = 0;
-    if (SafeRead(gameBase + kCandidateMenuManRva, menuMan) && menuMan != 0 &&
-        SafeRead(menuMan + 0x1D50u, activeMenu) && activeMenu != 0) {
-        return true;
-    }
-
-    return false;
+    // NewMenuSystem + 0x3084 is a debug help-menu option, not a cutscene
+    // flag. Marker visibility follows the actual frontend state and the local
+    // event animation without changing actor visibility or any saved toggle.
+    return NativeSceneSuppressesMarkers(gameBase, localChr,
+        [](std::uintptr_t address, auto& value) noexcept { return SafeRead(address, value); });
 }
 
 bool ActorTracker::IsActorOccluded(const TrackedActor& a) const noexcept {

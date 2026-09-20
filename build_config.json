@@ -7,5 +7,8 @@
   "companion_spawner": true,
   "hit_sync": true,
   "counters": true,
-  "fps_unlock": true
+  "fps_unlock": true,
+  "anim_fix": true,
+  "cutscene_fix": true,
+  "lan_coop": true
 }

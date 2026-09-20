@@ -31,6 +31,20 @@
 #include "fps_unlock/fps_unlock_extension.h"
 #endif
 
+#if defined(DS3SC_FEATURE_ANIM_FIX) && DS3SC_FEATURE_ANIM_FIX
+#include "anim_fix/anim_fix_extension.h"
+#endif
+
+#if defined(DS3SC_FEATURE_CUTSCENE_FIX) && DS3SC_FEATURE_CUTSCENE_FIX
+#include "cutscene_fix/cutscene_fix_extension.h"
+#endif
+
+#if defined(DS3SC_FEATURE_LAN_COOP) && DS3SC_FEATURE_LAN_COOP
+#include "lan_coop/lan_coop_extension.h"
+#endif
+
+
+
 
 namespace {
 
@@ -70,6 +84,23 @@ DWORD WINAPI ExtensionWorker(void*) {
     ds3sc::extensions::ExtensionManager::Instance().Register(
         ds3sc::extensions::CreateFpsUnlockExtension());
 #endif
+
+#if defined(DS3SC_FEATURE_ANIM_FIX) && DS3SC_FEATURE_ANIM_FIX
+    ds3sc::extensions::ExtensionManager::Instance().Register(
+        ds3sc::extensions::CreateAnimFixExtension());
+#endif
+
+#if defined(DS3SC_FEATURE_CUTSCENE_FIX) && DS3SC_FEATURE_CUTSCENE_FIX
+    ds3sc::extensions::ExtensionManager::Instance().Register(
+        ds3sc::extensions::CreateCutsceneFixExtension());
+#endif
+
+#if defined(DS3SC_FEATURE_LAN_COOP) && DS3SC_FEATURE_LAN_COOP
+    ds3sc::extensions::ExtensionManager::Instance().Register(
+        ds3sc::extensions::CreateLanCoopExtension());
+#endif
+
+
 
 
     // 2. Wait and initialization loop once DarkSoulsIII.exe and ds3sc.dll are ready

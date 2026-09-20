@@ -28,6 +28,9 @@ def parse_args():
     default_hit_sync = cfg.get("hit_sync", True)
     default_counters = cfg.get("counters", True)
     default_fps_unlock = cfg.get("fps_unlock", True)
+    default_anim_fix = cfg.get("anim_fix", True)
+    default_cutscene_fix = cfg.get("cutscene_fix", True)
+    default_lan_coop = cfg.get("lan_coop", True)
 
     parser = argparse.ArgumentParser(description="The Ashen Link: DS3 Coop Binary Builder")
     parser.add_argument("--with-ally-outline", dest="ally_outline", action="store_true", default=default_outline,
@@ -43,9 +46,9 @@ def parse_args():
     parser.add_argument("--without-companion", dest="companion", action="store_false",
                         help="Exclude companion spawner extension")
     parser.add_argument("--with-hit-sync", dest="hit_sync", action="store_true", default=default_hit_sync,
-                        help="Include hit synchronization and damage registration extension")
+                        help="Include hit registration & damage synchronization extension")
     parser.add_argument("--without-hit-sync", dest="hit_sync", action="store_false",
-                        help="Exclude hit synchronization extension")
+                        help="Exclude hit registration & damage synchronization extension")
     parser.add_argument("--with-counters", "--with-contadores", "--with-combat-stats", dest="counters", action="store_true", default=default_counters,
                         help="Include stat counters module (deaths, kills, and backstabs)")
     parser.add_argument("--without-counters", "--without-contadores", "--without-combat-stats", dest="counters", action="store_false",
@@ -58,6 +61,19 @@ def parse_args():
                         help="Include 60 FPS uncap / framerate unlocker extension")
     parser.add_argument("--without-fps-unlock", "--without-fps", dest="fps_unlock", action="store_false",
                         help="Exclude 60 FPS uncap / framerate unlocker extension")
+    parser.add_argument("--with-anim-fix", "--with-fix-anim", dest="anim_fix", action="store_true", default=default_anim_fix,
+                        help="Include animation and locomotion repair module")
+    parser.add_argument("--without-anim-fix", "--without-fix-anim", dest="anim_fix", action="store_false",
+                        help="Exclude animation and locomotion repair module")
+    parser.add_argument("--with-cutscene-fix", "--with-cutscenes", dest="cutscene_fix", action="store_true", default=default_cutscene_fix,
+                        help="Include cutscene ally isolation module")
+    parser.add_argument("--without-cutscene-fix", "--without-cutscenes", dest="cutscene_fix", action="store_false",
+                        help="Exclude cutscene ally isolation module")
+    parser.add_argument("--with-lan-coop", "--with-lan", dest="lan_coop", action="store_true", default=default_lan_coop,
+                        help="Include LAN Co-op transport and Steamworks interception module")
+    parser.add_argument("--without-lan-coop", "--without-lan", dest="lan_coop", action="store_false",
+                        help="Exclude LAN Co-op transport module")
+
 
     parser.add_argument("--no-companion", dest="legacy_no_companion", action="store_true",
                         help="Alias to exclude companion spawner")
@@ -108,14 +124,14 @@ def setup_msvc_environment() -> str:
         raise RuntimeError("Could not locate cl.exe after initializing vcvars64.bat.")
     return cl_exe
 
-def build_extensions(cl_exe: str, enable_outline: bool, enable_player_outline: bool = False, enable_markers: bool = True, enable_companion: bool = False, enable_hit_sync: bool = True, enable_counters: bool = True, enable_fps_unlock: bool = True, enable_contadores: bool = None, skip_install: bool = False):
+def build_extensions(cl_exe: str, enable_outline: bool, enable_player_outline: bool = False, enable_markers: bool = True, enable_companion: bool = False, enable_hit_sync: bool = True, enable_counters: bool = True, enable_fps_unlock: bool = True, enable_anim_fix: bool = True, enable_cutscene_fix: bool = True, enable_lan_coop: bool = True, enable_contadores: bool = None, skip_install: bool = False):
     if enable_contadores is not None:
         enable_counters = enable_contadores
 
     comp_out = ROOT / "build/companion"
     comp_out.mkdir(parents=True, exist_ok=True)
 
-    if not enable_outline and not enable_player_outline and not enable_markers and not enable_companion and not enable_hit_sync and not enable_counters and not enable_fps_unlock:
+    if not enable_outline and not enable_player_outline and not enable_markers and not enable_companion and not enable_hit_sync and not enable_counters and not enable_fps_unlock and not enable_anim_fix and not enable_cutscene_fix and not enable_lan_coop:
         print("[Modular Build] No native extensions enabled. Skipping ds3sc_companion.dll.")
         # Clean previous DLL if it existed to avoid packaging by mistake
         stale_dll = comp_out / "ds3sc_companion.dll"
@@ -131,14 +147,17 @@ def build_extensions(cl_exe: str, enable_outline: bool, enable_player_outline: b
     ]
     libs = ["Kernel32.lib", "User32.lib", "Gdi32.lib", "Ws2_32.lib"]
 
-    needs_d3d11 = enable_outline or enable_player_outline or enable_markers or enable_counters or enable_companion or enable_fps_unlock
-    needs_actor_tracker = enable_outline or enable_player_outline or enable_markers or enable_counters or enable_companion
+    needs_d3d11 = enable_outline or enable_player_outline or enable_markers or enable_counters or enable_companion or enable_fps_unlock or enable_anim_fix or enable_cutscene_fix
+    needs_actor_tracker = enable_outline or enable_player_outline or enable_markers or enable_counters or enable_companion or enable_anim_fix or enable_cutscene_fix
+    needs_minhook = needs_d3d11 or enable_lan_coop
+
 
     if needs_d3d11:
         sources.append(ROOT / "src/render/d3d11_hook.cpp")
         sources.append(ROOT / "src/render/title_menu.cpp")
         libs.extend(["d3d11.lib", "dxgi.lib", "d3dcompiler.lib", "dinput8.lib", "dxguid.lib"])
 
+    if needs_minhook:
         # MinHook cache: only compile if .obj files are missing or older than sources
         minhook = ROOT / "tools/vendor/minhook-1.3.4"
         mh_sources = [minhook / "src" / name for name in
@@ -225,6 +244,24 @@ def build_extensions(cl_exe: str, enable_outline: bool, enable_player_outline: b
     else:
         defines.append("/DDS3SC_FEATURE_FPS_UNLOCK=0")
 
+    if enable_anim_fix:
+        defines.append("/DDS3SC_FEATURE_ANIM_FIX=1")
+        sources.append(ROOT / "src/extensions/anim_fix/anim_fix_extension.cpp")
+    else:
+        defines.append("/DDS3SC_FEATURE_ANIM_FIX=0")
+
+    if enable_cutscene_fix:
+        defines.append("/DDS3SC_FEATURE_CUTSCENE_FIX=1")
+        sources.append(ROOT / "src/extensions/cutscene_fix/cutscene_fix_extension.cpp")
+    else:
+        defines.append("/DDS3SC_FEATURE_CUTSCENE_FIX=0")
+
+    if enable_lan_coop:
+        defines.append("/DDS3SC_FEATURE_LAN_COOP=1")
+        sources.append(ROOT / "src/extensions/lan_coop/lan_coop_extension.cpp")
+    else:
+        defines.append("/DDS3SC_FEATURE_LAN_COOP=0")
+
     features_str = []
     if enable_outline: features_str.append("Ally Outline")
     if enable_player_outline: features_str.append("Player Outline & Silhouette")
@@ -233,6 +270,9 @@ def build_extensions(cl_exe: str, enable_outline: bool, enable_player_outline: b
     if enable_hit_sync: features_str.append("Hit Sync")
     if enable_counters: features_str.append("Stat Counters")
     if enable_fps_unlock: features_str.append("FPS Unlocker")
+    if enable_anim_fix: features_str.append("Anim Fix")
+    if enable_cutscene_fix: features_str.append("Cutscene Ally Isolation")
+    if enable_lan_coop: features_str.append("LAN Co-op Transport & Matchmaking")
     print(f"[Modular Build] Compiling ds3sc_companion.dll with modules: [{', '.join(features_str)}]...")
 
     cmd_comp = [
@@ -329,7 +369,7 @@ def main():
     cl_exe = setup_msvc_environment()
 
     # Compile modular extensions
-    build_extensions(cl_exe, enable_outline=args.ally_outline, enable_player_outline=args.player_outline, enable_markers=args.ally_markers, enable_companion=args.companion, enable_hit_sync=args.hit_sync, enable_counters=args.counters, enable_fps_unlock=args.fps_unlock, skip_install=args.skip_install)
+    build_extensions(cl_exe, enable_outline=args.ally_outline, enable_player_outline=args.player_outline, enable_markers=args.ally_markers, enable_companion=args.companion, enable_hit_sync=args.hit_sync, enable_counters=args.counters, enable_fps_unlock=args.fps_unlock, enable_anim_fix=args.anim_fix, enable_cutscene_fix=args.cutscene_fix, enable_lan_coop=args.lan_coop, skip_install=args.skip_install)
 
     # Sync locale files in locale directories
     locale_srcs = [
