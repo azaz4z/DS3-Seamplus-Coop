@@ -46,23 +46,23 @@ Real-time 3D overhead diamond indicators above co-op allies (configurable height
 
 ---
 
-### Primary Method: Modular Release Builder (`make_release.py`)
+### Primary Method: Modular Release Builder (`make_release.pyw`)
 
-The primary way to configure, build, and package releases is via **`make_release.py`**. It provides an interactive graphical interface (PyQt6) to select active modules, patches, and compile ready-to-distribute release packages:
+The primary way to configure, build, and package releases is via **`make_release.pyw`**. It provides an interactive graphical interface (PyQt6) to select active modules, patches, and compile ready-to-distribute release packages without opening a command prompt console:
 
 ```powershell
-# Launch the graphical Release Manager
-python make_release.py
+# Launch the graphical Release Manager (or simply double-click make_release.pyw)
+python make_release.pyw
 ```
 
 You can also run it headlessly via the command line:
 
 ```powershell
 # Build release via CLI
-python make_release.py --cli
+python make_release.pyw --cli
 
 # Build with custom modular flags
-python make_release.py --cli --with-greatwood-patch --with-ally-markers --with-companion-spawner
+python make_release.pyw --cli --with-greatwood-patch --with-ally-markers --with-companion-spawner
 ```
 
 ---
