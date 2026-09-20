@@ -26,6 +26,23 @@ CONFIG_FILE = ROOT / "build_config.json"
 DEFAULT_VERSION_BASE = "0.1.2"
 DEFAULT_AUTHOR = "azaz4z"
 
+def hide_console_window() -> None:
+    """Hide the Windows console window when launching GUI mode."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+            if hwnd:
+                ctypes.windll.user32.ShowWindow(hwnd, 0)  # 0 = SW_HIDE
+        except Exception:
+            pass
+
+# Immediately hide console if not running in command-line / help mode
+if sys.platform == "win32" and not any(arg in sys.argv for arg in ("--cli", "--help", "-h", "--list-modules")):
+    hide_console_window()
+
+SUBPROCESS_FLAGS = {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
+
 @dataclass
 class ReleaseModule:
     id: str
@@ -282,7 +299,7 @@ def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_
         else:
             build_cmd.append("--without-lan-coop")
 
-        build_proc = subprocess.run(build_cmd, cwd=ROOT, capture_output=True, text=True)
+        build_proc = subprocess.run(build_cmd, cwd=ROOT, capture_output=True, text=True, **SUBPROCESS_FLAGS)
         if build_proc.returncode != 0:
             log_fn("ERROR STDERR:\n" + build_proc.stderr)
             log_fn("STDOUT:\n" + build_proc.stdout)
@@ -301,7 +318,7 @@ def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_
     if (greatwood_enabled or bonfire_enabled) and run_tests:
         log_fn("      Running Unicorn emulation test suite (greatwood_patch_test.py)...")
         test_proc = subprocess.run([sys.executable, str(ROOT / "tests/greatwood_patch_test.py")],
-                                    cwd=ROOT, capture_output=True, text=True)
+                                    cwd=ROOT, capture_output=True, text=True, **SUBPROCESS_FLAGS)
         if test_proc.returncode != 0:
             log_fn("ERROR IN TEST:\n" + test_proc.stderr)
             raise RuntimeError("Tests failed in greatwood_patch_test.py")
@@ -358,7 +375,7 @@ def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_
         if not bonfire_enabled:
             cmd.append("--without-bonfire")
 
-        patch_proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
+        patch_proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, **SUBPROCESS_FLAGS)
         if patch_proc.returncode != 0:
             log_fn("ERROR IN PATCH:\n" + patch_proc.stderr)
             raise RuntimeError("Failed patch-greatwood.py")
