@@ -145,7 +145,7 @@ def build_extensions(cl_exe: str, enable_outline: bool, enable_player_outline: b
         ROOT / "src/extensions/extension_dll_main.cpp",
         ROOT / "src/network/lan_transport.cpp",
     ]
-    libs = ["Kernel32.lib", "User32.lib", "Gdi32.lib", "Ws2_32.lib"]
+    libs = ["Kernel32.lib", "User32.lib", "Gdi32.lib", "Ws2_32.lib", "Advapi32.lib"]
 
     needs_d3d11 = enable_outline or enable_player_outline or enable_markers or enable_counters or enable_companion or enable_fps_unlock or enable_anim_fix or enable_cutscene_fix
     needs_actor_tracker = enable_outline or enable_player_outline or enable_markers or enable_counters or enable_companion or enable_anim_fix or enable_cutscene_fix

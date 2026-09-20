@@ -35,6 +35,9 @@ private:
     bool InstallSteamHooks() noexcept;
     void RemoveSteamHooks() noexcept;
 
+    void EnsureSteamHooks() noexcept;
+    void CheckSettingsFile() noexcept;
+
     std::atomic<bool> initialized_{false};
     std::atomic<bool> active_{false};
     std::atomic<bool> isHost_{false};
@@ -42,6 +45,7 @@ private:
     std::atomic<uint32_t> passwordHash_{0};
     std::string sessionPassword_;
     char iniPath_[MAX_PATH]{};
+    FILETIME lastIniWriteTime_{};
 };
 
 std::shared_ptr<IExtension> CreateLanCoopExtension() noexcept;

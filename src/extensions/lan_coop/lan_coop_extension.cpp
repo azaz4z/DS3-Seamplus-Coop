@@ -6,6 +6,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#pragma comment(lib, "Advapi32.lib")
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -641,17 +642,17 @@ void* STDMETHODCALLTYPE DetourGetISteamGenericInterface(void* thisptr, int32_t h
         realInterface = g_origGetGenericInterface(thisptr, hUser, hPipe, pchVersion);
     }
     if (pchVersion) {
-        if (strcmp(pchVersion, "SteamMatchMaking009") == 0) {
+        if (_stricmp(pchVersion, "SteamMatchMaking009") == 0) {
             if (realInterface) g_lanMatchmaking.SetReal(realInterface);
             OutputDebugStringA("[ds3sc-lan-coop] Returning unified VirtualSteamMatchmaking009 proxy\n");
             return &g_lanMatchmaking;
         }
-        if (strcmp(pchVersion, "SteamNetworking005") == 0) {
+        if (_stricmp(pchVersion, "SteamNetworking005") == 0) {
             if (realInterface) g_lanNetworking.SetReal(realInterface);
             OutputDebugStringA("[ds3sc-lan-coop] Returning unified VirtualSteamNetworking005 proxy\n");
             return &g_lanNetworking;
         }
-        if (strcmp(pchVersion, "SteamNetworkingMessages002") == 0) {
+        if (_stricmp(pchVersion, "SteamNetworkingMessages002") == 0) {
             if (realInterface) g_lanNetworkingMessages.SetReal(realInterface);
             OutputDebugStringA("[ds3sc-lan-coop] Returning unified VirtualSteamNetworkingMessages002 proxy\n");
             return &g_lanNetworkingMessages;
@@ -665,7 +666,7 @@ CreateInterfaceFn g_origCreateInterface = nullptr;
 
 void* DetourCreateInterface(const char* pName, int* pReturnCode) {
     void* result = g_origCreateInterface ? g_origCreateInterface(pName, pReturnCode) : nullptr;
-    if (result && pName && strcmp(pName, "SteamClient017") == 0) {
+    if (result && pName && _stricmp(pName, "SteamClient017") == 0) {
         void** vtable = *reinterpret_cast<void***>(result);
         if (vtable && vtable[12] != reinterpret_cast<void*>(&DetourGetISteamGenericInterface)) {
             g_steamClientVTable = vtable;
@@ -679,6 +680,28 @@ void* DetourCreateInterface(const char* pName, int* pReturnCode) {
         }
     }
     return result;
+}
+
+using SteamMatchmakingFn = void*(*)();
+SteamMatchmakingFn g_origSteamMatchmaking = nullptr;
+
+void* DetourSteamMatchmaking() {
+    if (g_origSteamMatchmaking && !g_lanMatchmaking.GetReal()) {
+        void* real = g_origSteamMatchmaking();
+        if (real) g_lanMatchmaking.SetReal(real);
+    }
+    return &g_lanMatchmaking;
+}
+
+using SteamNetworkingFn = void*(*)();
+SteamNetworkingFn g_origSteamNetworking = nullptr;
+
+void* DetourSteamNetworking() {
+    if (g_origSteamNetworking && !g_lanNetworking.GetReal()) {
+        void* real = g_origSteamNetworking();
+        if (real) g_lanNetworking.SetReal(real);
+    }
+    return &g_lanNetworking;
 }
 
 using RegisterCallbackFn = void(*)(void*, int);
@@ -720,6 +743,33 @@ void DetourRunCallbacks() {
     }
 }
 
+static HMODULE GetOrLoadSteamClient() noexcept {
+    HMODULE hMod = GetModuleHandleA("steamclient64.dll");
+    if (hMod) return hMod;
+
+    hMod = LoadLibraryA("steamclient64.dll");
+    if (hMod) return hMod;
+
+    HKEY hKey = nullptr;
+    if (RegOpenKeyExA(HKEY_CURRENT_USER, "Software\\Valve\\Steam", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        char steamPath[MAX_PATH] = {};
+        DWORD pathSize = sizeof(steamPath);
+        DWORD type = 0;
+        if (RegQueryValueExA(hKey, "SteamPath", nullptr, &type, reinterpret_cast<LPBYTE>(steamPath), &pathSize) == ERROR_SUCCESS) {
+            char fullClientPath[MAX_PATH] = {};
+            snprintf(fullClientPath, sizeof(fullClientPath), "%s\\steamclient64.dll", steamPath);
+            for (char* p = fullClientPath; *p; ++p) {
+                if (*p == '/') *p = '\\';
+            }
+            hMod = LoadLibraryA(fullClientPath);
+        }
+        RegCloseKey(hKey);
+    }
+    if (hMod) return hMod;
+
+    return LoadLibraryA("C:\\Program Files (x86)\\Steam\\steamclient64.dll");
+}
+
 LanCoopExtension* g_lanCoopInstance = nullptr;
 
 } // namespace
@@ -744,6 +794,11 @@ void LanCoopExtension::LoadSettings() noexcept {
     }
 
     if (iniPath_[0] != '\0') {
+        WIN32_FILE_ATTRIBUTE_DATA fad{};
+        if (GetFileAttributesExA(iniPath_, GetFileExInfoStandard, &fad)) {
+            lastIniWriteTime_ = fad.ftLastWriteTime;
+        }
+
         int connMode = GetPrivateProfileIntA("NETWORK", "connection_mode", 0, iniPath_);
         InterlockedExchange(&ds3scConnectionMode, connMode);
 
@@ -758,19 +813,44 @@ void LanCoopExtension::LoadSettings() noexcept {
     }
 }
 
-bool LanCoopExtension::InstallSteamHooks() noexcept {
-    HMODULE hSteamClient = GetModuleHandleA("steamclient64.dll");
-    if (!hSteamClient) {
-        hSteamClient = LoadLibraryA("steamclient64.dll");
+void LanCoopExtension::CheckSettingsFile() noexcept {
+    if (iniPath_[0] == '\0') return;
+
+    WIN32_FILE_ATTRIBUTE_DATA fad{};
+    if (GetFileAttributesExA(iniPath_, GetFileExInfoStandard, &fad)) {
+        if (fad.ftLastWriteTime.dwLowDateTime != lastIniWriteTime_.dwLowDateTime ||
+            fad.ftLastWriteTime.dwHighDateTime != lastIniWriteTime_.dwHighDateTime) {
+            lastIniWriteTime_ = fad.ftLastWriteTime;
+            long oldMode = ds3scConnectionMode;
+            LoadSettings();
+            if (oldMode != 0 && ds3scConnectionMode == 0) {
+                DissolveSession();
+            }
+            char logBuf[128];
+            snprintf(logBuf, sizeof(logBuf),
+                     "[ds3sc-lan-coop] Hot-reloaded ds3sc_settings.ini: mode=%ld, port=%u\n",
+                     ds3scConnectionMode, port_.load());
+            OutputDebugStringA(logBuf);
+        }
     }
+}
+
+void LanCoopExtension::EnsureSteamHooks() noexcept {
+    if (g_steamClientVTable && g_origGetGenericInterface) {
+        return; // Already hooked
+    }
+
+    HMODULE hSteamClient = GetOrLoadSteamClient();
     if (hSteamClient) {
         auto pCreateInterface = reinterpret_cast<CreateInterfaceFn>(GetProcAddress(hSteamClient, "CreateInterface"));
         if (pCreateInterface) {
-            MH_CreateHook(reinterpret_cast<void*>(pCreateInterface),
-                          reinterpret_cast<void*>(&DetourCreateInterface),
-                          reinterpret_cast<void**>(&g_origCreateInterface));
-            MH_EnableHook(reinterpret_cast<void*>(pCreateInterface));
-            OutputDebugStringA("[ds3sc-lan-coop] Hooked steamclient64.dll CreateInterface\n");
+            if (!g_origCreateInterface) {
+                MH_CreateHook(reinterpret_cast<void*>(pCreateInterface),
+                              reinterpret_cast<void*>(&DetourCreateInterface),
+                              reinterpret_cast<void**>(&g_origCreateInterface));
+                MH_EnableHook(reinterpret_cast<void*>(pCreateInterface));
+                OutputDebugStringA("[ds3sc-lan-coop] Hooked steamclient64.dll CreateInterface\n");
+            }
 
             int err = 0;
             void* pClient = pCreateInterface("SteamClient017", &err);
@@ -783,17 +863,42 @@ bool LanCoopExtension::InstallSteamHooks() noexcept {
                         g_origGetGenericInterface = reinterpret_cast<GetGenericInterfaceFn>(vtable[12]);
                         vtable[12] = reinterpret_cast<void*>(&DetourGetISteamGenericInterface);
                         VirtualProtect(&vtable[12], sizeof(void*), oldProtect, &oldProtect);
-                        OutputDebugStringA("[ds3sc-lan-coop] Immediately hooked ISteamClient::GetISteamGenericInterface slot 12 on startup\n");
+                        OutputDebugStringA("[ds3sc-lan-coop] Successfully hooked ISteamClient::GetISteamGenericInterface slot 12\n");
                     }
                 }
             }
         }
     }
+}
+
+bool LanCoopExtension::InstallSteamHooks() noexcept {
+    MH_Initialize();
+
+    EnsureSteamHooks();
 
     HMODULE hSteamApi = GetModuleHandleA("steam_api64.dll");
+    if (!hSteamApi) {
+        hSteamApi = LoadLibraryA("steam_api64.dll");
+    }
     if (hSteamApi) {
+        auto pMatch = GetProcAddress(hSteamApi, "SteamMatchmaking");
+        if (pMatch && !g_origSteamMatchmaking) {
+            MH_CreateHook(reinterpret_cast<void*>(pMatch),
+                          reinterpret_cast<void*>(&DetourSteamMatchmaking),
+                          reinterpret_cast<void**>(&g_origSteamMatchmaking));
+            MH_EnableHook(reinterpret_cast<void*>(pMatch));
+        }
+
+        auto pNet = GetProcAddress(hSteamApi, "SteamNetworking");
+        if (pNet && !g_origSteamNetworking) {
+            MH_CreateHook(reinterpret_cast<void*>(pNet),
+                          reinterpret_cast<void*>(&DetourSteamNetworking),
+                          reinterpret_cast<void**>(&g_origSteamNetworking));
+            MH_EnableHook(reinterpret_cast<void*>(pNet));
+        }
+
         auto pReg = GetProcAddress(hSteamApi, "SteamAPI_RegisterCallback");
-        if (pReg) {
+        if (pReg && !g_origRegisterCallback) {
             MH_CreateHook(reinterpret_cast<void*>(pReg),
                           reinterpret_cast<void*>(&DetourRegisterCallback),
                           reinterpret_cast<void**>(&g_origRegisterCallback));
@@ -801,7 +906,7 @@ bool LanCoopExtension::InstallSteamHooks() noexcept {
         }
 
         auto pUnreg = GetProcAddress(hSteamApi, "SteamAPI_UnregisterCallback");
-        if (pUnreg) {
+        if (pUnreg && !g_origUnregisterCallback) {
             MH_CreateHook(reinterpret_cast<void*>(pUnreg),
                           reinterpret_cast<void*>(&DetourUnregisterCallback),
                           reinterpret_cast<void**>(&g_origUnregisterCallback));
@@ -809,7 +914,7 @@ bool LanCoopExtension::InstallSteamHooks() noexcept {
         }
 
         auto pRun = GetProcAddress(hSteamApi, "SteamAPI_RunCallbacks");
-        if (pRun) {
+        if (pRun && !g_origRunCallbacks) {
             MH_CreateHook(reinterpret_cast<void*>(pRun),
                           reinterpret_cast<void*>(&DetourRunCallbacks),
                           reinterpret_cast<void**>(&g_origRunCallbacks));
@@ -862,6 +967,12 @@ void LanCoopExtension::Shutdown() noexcept {
 
 void LanCoopExtension::OnTick() noexcept {
     if (!initialized_.load(std::memory_order_relaxed)) return;
+
+    static uint32_t tickCounter = 0;
+    if ((++tickCounter % 30) == 0) {
+        CheckSettingsFile();
+        EnsureSteamHooks();
+    }
 
     active_.store(ds3scConnectionMode != 0, std::memory_order_relaxed);
     if (active_.load(std::memory_order_relaxed)) {
