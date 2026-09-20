@@ -112,6 +112,13 @@ MODULES = [
         description="Automatically isolates and hides co-op allies, diamond markers, and outlines during cutscenes to prevent camera obstruction and scene disruptions.",
         default=True
     ),
+    ReleaseModule(
+        id="lan_coop",
+        name="LAN Co-op Transport & Matchmaking",
+        category="Native C++ Extension (Network)",
+        description="Local Area Network multiplayer transport with automatic UDP broadcast beacon discovery and virtual matchmaking without requiring Steam.",
+        default=True
+    ),
 ]
 
 
@@ -216,7 +223,8 @@ def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_
                             selected_modules.get("contadores", False) or
                             selected_modules.get("fps_unlock", False) or
                             selected_modules.get("anim_fix", False) or
-                            selected_modules.get("cutscene_fix", False))
+                            selected_modules.get("cutscene_fix", False) or
+                            selected_modules.get("lan_coop", False))
     greatwood_enabled = selected_modules.get("greatwood_patch", False)
     bonfire_enabled = selected_modules.get("guest_bonfires", False)
 
@@ -268,6 +276,11 @@ def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_
             build_cmd.append("--with-cutscene-fix")
         else:
             build_cmd.append("--without-cutscene-fix")
+
+        if selected_modules.get("lan_coop", False):
+            build_cmd.append("--with-lan-coop")
+        else:
+            build_cmd.append("--without-lan-coop")
 
         build_proc = subprocess.run(build_cmd, cwd=ROOT, capture_output=True, text=True)
         if build_proc.returncode != 0:

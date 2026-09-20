@@ -66,6 +66,18 @@ void QueueCallback(int iCallback, const void* pData, size_t size) {
     g_pendingCallbacks.push_back(std::move(cb));
 }
 
+static void SafeInvokeCallback(void* pCallback, uint8_t* pData) noexcept {
+    __try {
+        void** vtable = *reinterpret_cast<void***>(pCallback);
+        if (vtable && vtable[0]) {
+            auto run = reinterpret_cast<CallbackRunFn>(vtable[0]);
+            run(pCallback, pData);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        // Ignore transient dispatch exception
+    }
+}
+
 void DispatchPendingCallbacks() {
     std::vector<PendingCallback> toDispatch;
     {
@@ -78,15 +90,7 @@ void DispatchPendingCallbacks() {
     for (const auto& pending : toDispatch) {
         for (const auto& reg : g_registeredCallbacks) {
             if (reg.iCallback == pending.iCallback && reg.pCallback) {
-                __try {
-                    void** vtable = *reinterpret_cast<void***>(reg.pCallback);
-                    if (vtable && vtable[0]) {
-                        auto run = reinterpret_cast<CallbackRunFn>(vtable[0]);
-                        run(reg.pCallback, const_cast<uint8_t*>(pending.data.data()));
-                    }
-                } __except (EXCEPTION_EXECUTE_HANDLER) {
-                    // Ignore transient dispatch exception
-                }
+                SafeInvokeCallback(reg.pCallback, const_cast<uint8_t*>(pending.data.data()));
             }
         }
     }
@@ -398,7 +402,7 @@ void LanCoopExtension::LoadSettings() noexcept {
     HMODULE hMod = nullptr;
     if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
                            GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                           reinterpret_cast<LPCSTR>(&LanCoopExtension::LoadSettings), &hMod) && hMod) {
+                           reinterpret_cast<LPCSTR>(&g_lanCoopInstance), &hMod) && hMod) {
         char modPath[MAX_PATH] = {};
         GetModuleFileNameA(hMod, modPath, sizeof(modPath));
         char* lastSlash = strrchr(modPath, '\\');
