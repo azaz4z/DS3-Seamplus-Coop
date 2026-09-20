@@ -1,4 +1,4 @@
-"""DS3 Seamless Co-op - Modular Release Creation Application (PyQt6).
+"""The Ashen Link: DS3 Coop - Modular Release Creation Application (PyQt6).
 
 Location: Project root.
 Configures the build modularly, selects patches and extensions,
@@ -123,11 +123,7 @@ def compute_sha256(path: Path) -> str:
         return hashlib.file_digest(f, "sha256").hexdigest()
 
 def make_menu_label(version: str, author: str, release_id: str) -> str:
-    candidate1 = f"Seamplus Co-op {version} ({release_id[:7]})"
-    if len(candidate1) <= 35:
-        return candidate1
-    candidate2 = f"Seamplus {version} ({release_id[:8]})"
-    return candidate2[:35]
+    return "The Ashen Link"
 
 def apply_label(dll_path: Path, label: str):
     data = bytearray(dll_path.read_bytes())
@@ -153,24 +149,21 @@ def apply_label(dll_path: Path, label: str):
     struct.pack_into("<Q", data, offset_size, label_len)
     dll_path.write_bytes(data)
 
-def apply_folder_name(dll_path: Path, folder_name: str = "SeamplusCoop"):
+def apply_folder_name(dll_path: Path, folder_name: str = "TheAshenLink"):
     """
     Patches the internal folder name in ds3sc.dll.
     Original string: b"SeamlessCoop\x00" (13 bytes, length 12).
     Replaced with: folder_name (must be <= 12 ASCII chars, padded with \x00).
     """
     data = bytearray(dll_path.read_bytes())
-    target = b"SeamlessCoop\x00"
-    idx = data.find(target)
-    if idx == -1:
-        replacement_probe = folder_name.encode("ascii")[:12] + b"\x00"
-        if data.find(replacement_probe) != -1:
+    replacement = folder_name.encode("ascii")[:12].ljust(12, b"\x00") + b"\x00"
+    for target in [b"TheAshenLink\x00", b"SeamplusCoop\x00", b"SeamlessCoop\x00"]:
+        idx = data.find(target)
+        if idx != -1:
+            data[idx:idx + len(target)] = replacement
+            dll_path.write_bytes(data)
             return
-        raise RuntimeError(f"Could not find {target!r} in {dll_path.name}")
-    replacement = folder_name.encode("ascii")[:12]
-    replacement = replacement.ljust(12, b"\x00") + b"\x00"
-    data[idx:idx + len(target)] = replacement
-    dll_path.write_bytes(data)
+    raise RuntimeError(f"Could not find folder name target in {dll_path.name}")
 
 def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_build: bool = False,
                            run_tests: bool = False, log_fn = print, progress_fn = None) -> Path:
@@ -185,7 +178,7 @@ def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_
     save_config(selected_modules)
 
     version_str = f"{DEFAULT_VERSION_BASE}-by-{DEFAULT_AUTHOR}-({release_id})"
-    release_name = f"DS3-Seamless-Coop-{version_str}"
+    release_name = f"The-Ashen-Link-DS3-Coop-{version_str}"
     menu_label = make_menu_label(DEFAULT_VERSION_BASE, DEFAULT_AUTHOR, release_id)
 
     log_fn("=" * 65)
@@ -280,6 +273,10 @@ def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_
     # 4. Verify launcher
     report_step(4, 6, "Verifying launcher executable...")
     launcher_candidates = [
+        ROOT / "build/bin/TheAshenLink.exe",
+        ROOT / "TheAshenLink.exe",
+        ROOT / "build/TheAshenLink.exe",
+        PACKAGE_ROOT / "TheAshenLink.exe",
         ROOT / "build/bin/ds3sc_launcher.exe",
         ROOT / "ds3sc_launcher.exe",
         ROOT / "build/ds3sc_launcher.exe",
@@ -287,12 +284,14 @@ def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_
     ]
     launcher_src = next((c for c in launcher_candidates if c.is_file()), None)
     if not launcher_src:
-        raise RuntimeError("Could not find compiled ds3sc_launcher.exe.")
+        raise RuntimeError("Could not find compiled TheAshenLink.exe.")
     log_fn(f"      Launcher verified: {launcher_src.name} ({launcher_src.stat().st_size:,} bytes)")
 
     # 5. Prepare core DLL (ds3sc.dll)
     report_step(5, 6, "Configuring ds3sc.dll...")
     orig_candidates = [
+        ROOT / "TheAshenLink/ds3sc_original.dll",
+        ROOT / "TheAshenLink/ds3sc.dll",
         ROOT / "SeamplusCoop/ds3sc_original.dll",
         ROOT / "SeamplusCoop/ds3sc.dll",
         ROOT / "SeamlessCoop/ds3sc_original.dll",
@@ -327,26 +326,28 @@ def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_
         shutil.copy2(orig_dll, patched_dll)
 
     apply_label(patched_dll, menu_label)
-    apply_folder_name(patched_dll, "SeamplusCoop")
+    apply_folder_name(patched_dll, "TheAshenLink")
     patched_sha = compute_sha256(patched_dll)
     log_fn(f"      ds3sc.dll ready: SHA-256 = {patched_sha}")
 
     # 6. Deploy release structure and package
     report_step(6, 6, "Deploying files and packaging ZIP...")
-    target_launcher = output_dir / "ds3sc_launcher.exe"
+    target_launcher = output_dir / "TheAshenLink.exe"
     shutil.copy2(launcher_src, target_launcher)
     log_fn(f"      + {target_launcher.name}")
 
-    release_coop = output_dir / "SeamplusCoop"
+    release_coop = output_dir / "TheAshenLink"
     release_coop.mkdir(parents=True, exist_ok=True)
 
     target_dll = release_coop / "ds3sc.dll"
     shutil.copy2(patched_dll, target_dll)
-    log_fn(f"      + SeamplusCoop/{target_dll.name}")
+    log_fn(f"      + TheAshenLink/{target_dll.name}")
 
     if has_native_extensions:
         companion_candidates = [
             ROOT / "build/companion/ds3sc_companion.dll",
+            ROOT / "build/TheAshenLink/ds3sc_companion.dll",
+            ROOT / "TheAshenLink/ds3sc_companion.dll",
             ROOT / "build/SeamplusCoop/ds3sc_companion.dll",
             ROOT / "SeamplusCoop/ds3sc_companion.dll",
             ROOT / "build/SeamlessCoop/ds3sc_companion.dll",
@@ -357,12 +358,14 @@ def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_
             raise RuntimeError("Native extensions were enabled but ds3sc_companion.dll is missing")
         target_comp = release_coop / "ds3sc_companion.dll"
         shutil.copy2(companion_src, target_comp)
-        log_fn(f"      + SeamplusCoop/{target_comp.name} (Extensions included)")
+        log_fn(f"      + TheAshenLink/{target_comp.name} (Extensions included)")
     else:
-        log_fn("      - SeamplusCoop/ds3sc_companion.dll SKIPPED")
+        log_fn("      - TheAshenLink/ds3sc_companion.dll SKIPPED")
 
     # Settings INI
     settings_candidates = [
+        ROOT / "build/TheAshenLink/ds3sc_settings.ini",
+        ROOT / "TheAshenLink/ds3sc_settings.ini",
         ROOT / "build/SeamplusCoop/ds3sc_settings.ini",
         ROOT / "SeamplusCoop/ds3sc_settings.ini",
         ROOT / "build/SeamlessCoop/ds3sc_settings.ini",
@@ -375,12 +378,12 @@ def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_
         raise RuntimeError("Missing ds3sc_settings.ini.")
     raw_settings = settings_src.read_text(encoding="utf-8")
     settings_lines = [
-        f"; DS3 Seamplus Co-op v0.1.2 by {DEFAULT_AUTHOR} (Release ID: {release_id})",
+        f"; The Ashen Link: DS3 Coop v{DEFAULT_VERSION_BASE} by {DEFAULT_AUTHOR} (Release ID: {release_id})",
         f"; Build timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         "",
     ]
     for s_line in raw_settings.splitlines():
-        if s_line.startswith("; DS3 Seamplus Co-op") or s_line.startswith("; DS3 Seamless Co-op") or s_line.startswith("; Build timestamp") or s_line.startswith("; Fecha"):
+        if s_line.startswith("; The Ashen Link") or s_line.startswith("; DS3 Seamplus Co-op") or s_line.startswith("; DS3 Seamless Co-op") or s_line.startswith("; Build timestamp") or s_line.startswith("; Fecha"):
             continue
         if s_line.strip().startswith("cooppassword"):
             settings_lines.append("cooppassword = 12345678")
@@ -390,38 +393,44 @@ def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_
             settings_lines.append(s_line)
     target_settings = release_coop / "ds3sc_settings.ini"
     target_settings.write_text("\n".join(settings_lines) + "\n", encoding="utf-8")
-    log_fn(f"      + SeamplusCoop/{target_settings.name}")
+    log_fn(f"      + TheAshenLink/{target_settings.name}")
 
     # Locale
     release_locale = release_coop / "locale"
     release_locale.mkdir(parents=True, exist_ok=True)
-    locale_src = next((c for c in [ROOT / "build/SeamplusCoop/locale/english.json",
+    locale_src = next((c for c in [ROOT / "build/TheAshenLink/locale/english.json",
+                                   ROOT / "TheAshenLink/locale/english.json",
+                                   ROOT / "build/SeamplusCoop/locale/english.json",
                                    ROOT / "SeamplusCoop/locale/english.json",
                                    ROOT / "build/SeamlessCoop/locale/english.json",
                                    ROOT / "SeamlessCoop/locale/english.json"] if c.is_file()), None)
     if locale_src:
         shutil.copy2(locale_src, release_locale / "english.json")
-        log_fn("      + SeamplusCoop/locale/english.json")
+        log_fn("      + TheAshenLink/locale/english.json")
 
     spanish_src = next((c for c in [ROOT / "src/languages/spanish.json",
+                                    ROOT / "build/TheAshenLink/locale/spanish.json",
+                                    ROOT / "TheAshenLink/locale/spanish.json",
                                     ROOT / "build/SeamplusCoop/locale/spanish.json",
                                     ROOT / "SeamplusCoop/locale/spanish.json",
                                     ROOT / "build/SeamlessCoop/locale/spanish.json",
                                     ROOT / "SeamlessCoop/locale/spanish.json"] if c.is_file()), None)
     if spanish_src:
         shutil.copy2(spanish_src, release_locale / "spanish.json")
-        log_fn("      + SeamplusCoop/locale/spanish.json")
+        log_fn("      + TheAshenLink/locale/spanish.json")
 
     # Crashpad
     release_crashpad = release_coop / "crashpad"
     release_crashpad.mkdir(parents=True, exist_ok=True)
-    crashpad_exe = next((c for c in [ROOT / "build/SeamplusCoop/crashpad/crashpad_handler.exe",
+    crashpad_exe = next((c for c in [ROOT / "build/TheAshenLink/crashpad/crashpad_handler.exe",
+                                     ROOT / "TheAshenLink/crashpad/crashpad_handler.exe",
+                                     ROOT / "build/SeamplusCoop/crashpad/crashpad_handler.exe",
                                      ROOT / "SeamplusCoop/crashpad/crashpad_handler.exe",
                                      ROOT / "build/SeamlessCoop/crashpad/crashpad_handler.exe",
                                      ROOT / "SeamlessCoop/crashpad/crashpad_handler.exe"] if c.is_file()), None)
     if crashpad_exe:
         shutil.copy2(crashpad_exe, release_crashpad / "crashpad_handler.exe")
-        log_fn("      + SeamplusCoop/crashpad/crashpad_handler.exe")
+        log_fn("      + TheAshenLink/crashpad/crashpad_handler.exe")
 
     (release_coop / "crashdumps" / "attachments").mkdir(parents=True, exist_ok=True)
     (release_coop / "crashdumps" / "reports").mkdir(parents=True, exist_ok=True)
@@ -474,12 +483,12 @@ def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_
             previous.rename(RELEASE_DIR)
         raise
 
-    root_launcher = ROOT / "ds3sc_launcher.exe"
-    if root_launcher.is_file():
-        try:
-            root_launcher.unlink()
-        except OSError:
-            pass
+    for old_exe in [ROOT / "TheAshenLink.exe", ROOT / "ds3sc_launcher.exe"]:
+        if old_exe.is_file():
+            try:
+                old_exe.unlink()
+            except OSError:
+                pass
 
     if progress_fn:
         progress_fn(100, "Release generated successfully!")
@@ -535,7 +544,7 @@ def run_pyqt_gui(initial_config: dict = None, initial_id: str = None):
     class MainWindow(QMainWindow):
         def __init__(self):
             super().__init__()
-            self.setWindowTitle("DS3 Seamless Co-op - Modular Release Builder")
+            self.setWindowTitle("The Ashen Link: DS3 Coop - Modular Release Builder")
             self.resize(760, 840)
             self.setMinimumSize(680, 680)
             self.worker = None
@@ -676,7 +685,7 @@ def run_pyqt_gui(initial_config: dict = None, initial_id: str = None):
 
             # Header
             header = QVBoxLayout()
-            title = QLabel("DARK SOULS III - SEAMLESS CO-OP")
+            title = QLabel("THE ASHEN LINK - DS3 COOP")
             title.setStyleSheet("font-size: 18px; font-weight: bold; color: #d8b26e; letter-spacing: 1px;")
             subtitle = QLabel("Modular Build Generator & Packager v0.1.2")
             subtitle.setStyleSheet("font-size: 12px; color: #8f8f9f;")
@@ -855,7 +864,7 @@ def run_pyqt_gui(initial_config: dict = None, initial_id: str = None):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="DS3 Seamless Co-op - Modular Release Application",
+        description="The Ashen Link: DS3 Coop - Modular Release Application",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples:
   make-release.bat                          (Opens the PyQt interface by default)
@@ -889,7 +898,7 @@ def main():
     args = parse_args()
 
     if args.list_modules:
-        print("\nAvailable modules and extensions in DS3 Seamless Co-op:")
+        print("\nAvailable modules and extensions in The Ashen Link: DS3 Coop:")
         for m in MODULES:
             print(f"  * {m.id} ({m.category})")
             print(f"      Name: {m.name}")

@@ -27,7 +27,9 @@ bool AllyMarkersExtension::Initialize() noexcept {
         }
     }
     if (iniPath[0] == '\0') {
-        if (GetFileAttributesA("SeamplusCoop\\ds3sc_settings.ini") != INVALID_FILE_ATTRIBUTES) {
+        if (GetFileAttributesA("TheAshenLink\\ds3sc_settings.ini") != INVALID_FILE_ATTRIBUTES) {
+            strcpy_s(iniPath, "TheAshenLink\\ds3sc_settings.ini");
+        } else if (GetFileAttributesA("SeamplusCoop\\ds3sc_settings.ini") != INVALID_FILE_ATTRIBUTES) {
             strcpy_s(iniPath, "SeamplusCoop\\ds3sc_settings.ini");
         } else {
             strcpy_s(iniPath, "SeamlessCoop\\ds3sc_settings.ini");
@@ -84,6 +86,6 @@ __declspec(dllexport) void ds3sc_set_marker_height_offset(float offset) {
 
 __declspec(dllexport) float ds3sc_get_marker_height_offset() {
     const LONG cm = ds3scDiamondMarkerHeightCm;
-    return (cm > 0) ? (cm / 100.0f) : 1.55f;
+    return (cm > 0) ? (cm / 100.0f) : 1.35f;
 }
 }

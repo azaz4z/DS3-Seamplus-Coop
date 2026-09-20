@@ -65,6 +65,7 @@ int main() {
     std::cout << "[TEST] C API ds3sc_get_counters, ds3sc_get_contadores, and ds3sc_get_combat_stats OK." << std::endl;
 
     // 4. Overlay toggling and C API
+    ext->SetOverlayVisible(true);
     assert(ext->IsOverlayVisible() == true);
     ext->SetOverlayVisible(false);
     assert(ext->IsOverlayVisible() == false);

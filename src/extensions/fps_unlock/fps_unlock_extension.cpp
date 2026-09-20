@@ -126,7 +126,9 @@ void FpsUnlockExtension::LoadSettings() noexcept {
         }
     }
     if (iniPath_[0] == '\0') {
-        if (GetFileAttributesA("SeamplusCoop\\ds3sc_settings.ini") != INVALID_FILE_ATTRIBUTES) {
+        if (GetFileAttributesA("TheAshenLink\\ds3sc_settings.ini") != INVALID_FILE_ATTRIBUTES) {
+            strcpy_s(iniPath_, "TheAshenLink\\ds3sc_settings.ini");
+        } else if (GetFileAttributesA("SeamplusCoop\\ds3sc_settings.ini") != INVALID_FILE_ATTRIBUTES) {
             strcpy_s(iniPath_, "SeamplusCoop\\ds3sc_settings.ini");
         } else {
             strcpy_s(iniPath_, "SeamlessCoop\\ds3sc_settings.ini");

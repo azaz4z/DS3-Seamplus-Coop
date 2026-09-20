@@ -21,7 +21,7 @@
 
 namespace ds3sc::render {
 
-// Direct hook for DarkSoulsIII.exe native DLC action handler (Option 4 "Seamplus")
+// Direct hook for DarkSoulsIII.exe native DLC action handler (Option 4 "The Ashen Link")
 static bool (__fastcall *s_origDlcMenuAction)(void* self) = nullptr;
 
 static bool __fastcall Hooked_DlcMenuAction(void* /*self*/) {
@@ -35,7 +35,7 @@ static void (__fastcall *s_origActivateGameOverlayToStore)(void* self, std::uint
 static void (__fastcall *s_origActivateGameOverlay)(void* self, const char* pchDialog) = nullptr;
 
 static void __fastcall Hooked_ActivateGameOverlayToStore(void* /*self*/, std::uint32_t /*nAppId*/, int /*eFlag*/) {
-    // Intercept native option 4 ("Seamplus") activation via gamepad or keyboard!
+    // Intercept native option 4 ("The Ashen Link") activation via gamepad or keyboard!
     TitleMenu::Instance().RequestModalOpen();
 }
 
@@ -148,6 +148,9 @@ std::wstring GetIniPath() noexcept {
             return std::wstring(buf);
         }
     }
+    if (GetFileAttributesW(L"TheAshenLink\\ds3sc_settings.ini") != INVALID_FILE_ATTRIBUTES) {
+        return L"TheAshenLink\\ds3sc_settings.ini";
+    }
     if (GetFileAttributesW(L"SeamplusCoop\\ds3sc_settings.ini") != INVALID_FILE_ATTRIBUTES) {
         return L"SeamplusCoop\\ds3sc_settings.ini";
     }
@@ -226,7 +229,7 @@ void TitleMenu::EnsureSteamHook() noexcept {
     MH_Initialize();
 
     // 1. Direct hook on DarkSoulsIII.exe native DLC action handler at RVA 0xEE1150
-    // This triggers 100% reliably when option 4 ("Seamplus") is activated via gamepad, keyboard, or mouse!
+    // This triggers 100% reliably when option 4 ("The Ashen Link") is activated via gamepad, keyboard, or mouse!
     auto gameBase = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(L"DarkSoulsIII.exe"));
     if (!gameBase) gameBase = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
     if (gameBase && !s_origDlcMenuAction) {
@@ -721,9 +724,9 @@ void TitleMenu::LoadSettingsFromIni() noexcept {
     });
 
     wchar_t hBuf[32] = {};
-    GetPrivateProfileStringW(L"ALLY_MARKERS", L"height_offset", L"1.55", hBuf, ARRAYSIZE(hBuf), iniPath_.c_str());
+    GetPrivateProfileStringW(L"ALLY_MARKERS", L"height_offset", L"1.35", hBuf, ARRAYSIZE(hBuf), iniPath_.c_str());
     float hVal = wcstof(hBuf, nullptr);
-    if (hVal <= 0.1f || hVal > 5.0f) hVal = 1.55f;
+    if (hVal <= 0.1f || hVal > 5.0f) hVal = 1.35f;
     int heightCm = static_cast<int>(std::round(hVal * 100.0f));
     heightCm = std::clamp(heightCm, 100, 250);
 
@@ -1448,8 +1451,8 @@ HRESULT TitleMenu::Present(IDXGISwapChain* swapChain) noexcept {
     const float sh = static_cast<float>(bbDesc.Height);
 
     // =========================================================================
-    // Interactive Seamplus Settings Modal
-    // (Native menu item 4 is now displayed as "Seamplus" by Dark Souls III itself)
+    // Interactive The Ashen Link Settings Modal
+    // (Native menu item 4 is now displayed as "The Ashen Link" by Dark Souls III itself)
     // =========================================================================
     if (isModalOpen_) {
         const bool keyboardLeft = (GetAsyncKeyState(VK_LEFT) & 0x8000) ||
@@ -1540,7 +1543,7 @@ HRESULT TitleMenu::Present(IDXGISwapChain* swapChain) noexcept {
         addRect(boxX + 16.0f, boxY + 44.0f, boxW - 32.0f, 1.0f, 0.55f, 0.48f, 0.35f, 0.75f);
 
         // Modal Header Title
-        addText(boxX + 24.0f, boxY + 14.0f, "SEAMPLUS - SETTINGS", 0.90f, 0.92f, 0.82f, 0.58f, 1.0f);
+        addText(boxX + 24.0f, boxY + 14.0f, "THE ASHEN LINK - SETTINGS", 0.90f, 0.92f, 0.82f, 0.58f, 1.0f);
 
         // Render Options List
         float itemY = boxY + 50.0f;

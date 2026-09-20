@@ -163,7 +163,7 @@ public:
         float& outDistance,
         float screenW,
         float screenH,
-        float heightOffset = 1.55f
+        float heightOffset = 1.35f
     ) const noexcept;
 
     [[nodiscard]] bool IsGameMenuOpen() const noexcept;
@@ -210,7 +210,7 @@ private:
     std::atomic<std::uintptr_t> fastLocalModel_{0};
     std::array<FastAllyBounds, kMaxFastAllies> fastAllyBounds_{};
     std::atomic<std::size_t> fastAllyBoundsCount_{0};
-    std::atomic<float> markerHeightOffset_{1.55f};
+    std::atomic<float> markerHeightOffset_{1.35f};
     bool settingsLoaded_{false};
 };
 

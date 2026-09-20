@@ -42,7 +42,10 @@ std::filesystem::path DetermineStatsPath() noexcept {
         }
     }
 
-    // 2. Fallback to relative SeamplusCoop/ds3sc_stats.ini or SeamlessCoop/ds3sc_stats.ini
+    // 2. Fallback to relative TheAshenLink/ds3sc_stats.ini, SeamplusCoop/ds3sc_stats.ini or SeamlessCoop/ds3sc_stats.ini
+    if (std::filesystem::exists("TheAshenLink")) {
+        return "TheAshenLink/ds3sc_stats.ini";
+    }
     if (std::filesystem::exists("SeamplusCoop")) {
         return "SeamplusCoop/ds3sc_stats.ini";
     }
@@ -50,6 +53,10 @@ std::filesystem::path DetermineStatsPath() noexcept {
         return "SeamlessCoop/ds3sc_stats.ini";
     }
 
+    const std::filesystem::path gameAshen(L"C:/Program Files (x86)/Steam/steamapps/common/DARK SOULS III/Game/TheAshenLink/ds3sc_stats.ini");
+    if (std::filesystem::exists(gameAshen.parent_path())) {
+        return gameAshen;
+    }
     const std::filesystem::path gamePlus(L"C:/Program Files (x86)/Steam/steamapps/common/DARK SOULS III/Game/SeamplusCoop/ds3sc_stats.ini");
     if (std::filesystem::exists(gamePlus.parent_path())) {
         return gamePlus;
@@ -76,6 +83,9 @@ std::filesystem::path DetermineSettingsPath() noexcept {
         }
     }
 
+    if (std::filesystem::is_regular_file("TheAshenLink/ds3sc_settings.ini")) {
+        return "TheAshenLink/ds3sc_settings.ini";
+    }
     if (std::filesystem::is_regular_file("SeamplusCoop/ds3sc_settings.ini")) {
         return "SeamplusCoop/ds3sc_settings.ini";
     }
@@ -83,6 +93,10 @@ std::filesystem::path DetermineSettingsPath() noexcept {
         return "SeamlessCoop/ds3sc_settings.ini";
     }
 
+    const std::filesystem::path gameAshen(L"C:/Program Files (x86)/Steam/steamapps/common/DARK SOULS III/Game/TheAshenLink/ds3sc_settings.ini");
+    if (std::filesystem::is_regular_file(gameAshen)) {
+        return gameAshen;
+    }
     const std::filesystem::path gamePlus(L"C:/Program Files (x86)/Steam/steamapps/common/DARK SOULS III/Game/SeamplusCoop/ds3sc_settings.ini");
     if (std::filesystem::is_regular_file(gamePlus)) {
         return gamePlus;

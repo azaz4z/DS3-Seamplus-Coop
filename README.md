@@ -1,6 +1,6 @@
-# DS3 Seamplus Coop
+# The Ashen Link: DS3 Coop
 
-A modular companion modification and enhancement suite for **Dark Souls III Seamless Co-op**.
+A modular companion modification and enhancement suite for **Dark Souls III co-op**.
 
 ---
 
@@ -19,6 +19,20 @@ A modular companion modification and enhancement suite for **Dark Souls III Seam
 | **Curse-Rotted Greatwood Wipe Fix** | Boss Encounter | **Patched (Untested)** | Prevents infinite loading screen and host HUD lock on party wipe; multiplayer acceptance remains unverified. |
 | **High Lord Wolnir** | Boss Encounter | **Buggy / Pending Fix** | Arena boundary desynchronization and phase transition issues in multiplayer. |
 | **Fire Demon (Demon Ruins)** | Mini-Boss Encounter | **Buggy / Pending Fix** | Grab attack desynchronization and abnormal aggro drops in co-op sessions. |
+
+---
+
+## Visual Showcase & Screenshots
+
+### Ally Outlines & Silhouettes
+Real-time Direct3D 11 occluded silhouette rendering through walls and geometry:
+
+![Ally Outlines & Silhouettes](github/2026092.JPG)
+
+### Ally Diamond Markers
+Real-time 3D overhead diamond indicators above co-op allies (configurable height offset, default `1.35m`):
+
+![Ally Diamond Markers](github/2026091.JPG)
 
 ---
 
@@ -85,19 +99,32 @@ python tools/build_binaries.py --without-ally-outline --with-ally-markers --with
 
 ## Installation & Usage
 
-1. Copy the release files into your Dark Souls III `Game\` directory:
-   - `ds3sc_launcher.exe` -> `Game\ds3sc_launcher.exe`
-   - `SeamplusCoop\` -> `Game\SeamplusCoop\` (containing `ds3sc.dll`, `ds3sc_companion.dll`, `ds3sc_settings.ini`, etc.)
-   *(Backwards compatibility with `Game\SeamlessCoop\` is also fully supported).*
-2. Launch the game using `ds3sc_launcher.exe`.
-3. Access the menu from the Title Screen or by pressing **F7** during gameplay.
+### Step-by-Step Installation
+
+1. Download the latest release `.zip` from the **[Releases](https://github.com/azaz4z/The-Ashen-Link/releases)** page.
+2. Extract all contents directly into your Dark Souls III **`Game\`** folder (where `DarkSoulsIII.exe` is located, e.g. `C:\Program Files (x86)\Steam\steamapps\common\DARK SOULS III\Game`):
+   - `TheAshenLink.exe` -> `Game\TheAshenLink.exe`
+   - `TheAshenLink\` -> `Game\TheAshenLink\` (contains `ds3sc.dll`, `ds3sc_companion.dll`, `ds3sc_settings.ini`, and `locale/`)
+   *(Backwards compatibility with existing `Game\SeamplusCoop\` and `Game\SeamlessCoop\` installations is automatically supported).*
+3. Configure your co-op password and settings in `TheAshenLink\ds3sc_settings.ini` (all players in your party must use the same password).
+4. Launch the game using **`TheAshenLink.exe`**.
+
+### Controls & In-Game Hotkeys
+
+| Key / Action | Function | Description |
+| :--- | :--- | :--- |
+| **Title Menu (Option 4)** | **The Ashen Link Settings** | Open the in-game settings modal directly from the main title screen. |
+| **F7** | **Toggle Settings Menu** | Open / close the interactive mod settings menu anytime during gameplay. |
+| **F8** | **Toggle Stat Counters** | Show or hide the on-screen session counter HUD (kills, deaths, backstabs). |
+| **F9** | **Reset Stat Counters** | Reset session statistics back to zero. |
+| **Ash Stone** (Inventory) | **Companion Summon** | Summon or dismiss your modular AI co-op companion. |
 
 ---
 
 ## License, Credits & Disclaimers
 
 - **Original Concept & Attribution:** All credit and appreciation go to **LukeYui / yuiamoroll** for pioneering the [Dark Souls 3 Seamless Co-op](https://github.com/yuiamoroll/DarkSouls3SeamlessCoopRelease) concept. This project is an independent, unofficial community effort and is in no way affiliated with, endorsed by, or supported by LukeYui.
-- **Clean-Room Reimplementation:** The original mod's source code was never publicly released. DS3 Seamplus Co-op is an independent clean-room reimplementation developed from the ground up using reverse engineering, custom memory hooks, and community research. No proprietary binaries or closed-source code from the original mod are decompiled, copied, or redistributed.
+- **Clean-Room Reimplementation:** The original mod's source code was never publicly released. The Ashen Link: DS3 Coop is an independent clean-room reimplementation developed from the ground up using reverse engineering, custom memory hooks, and community research. No proprietary binaries or closed-source code from the original mod are decompiled, copied, or redistributed.
 - **AI-Assisted Development:** Modern AI developer tooling was utilized throughout development to assist with reverse-engineering analysis, debugging, refactoring, and documentation. The project is 100% open-source, fully transparent, and welcomes community audits, testing, and pull requests.
 - **Third-Party Libraries:** Uses [MinHook](https://github.com/TsudaKageyu/minhook) for API redirection and runtime hooking.
 

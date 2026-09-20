@@ -51,6 +51,7 @@ int main() {
     std::cout << "[TEST] C API ds3sc_get_combat_stats OK." << std::endl;
 
     // 4. Check overlay visibility
+    ext->SetOverlayVisible(true);
     assert(ext->IsOverlayVisible());
     ext->SetOverlayVisible(false);
     assert(!ext->IsOverlayVisible());

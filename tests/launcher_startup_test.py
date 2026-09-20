@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-LAUNCHER = ROOT / "build/bin/ds3sc_launcher.exe"
+LAUNCHER = ROOT / "build/bin/TheAshenLink.exe" if (ROOT / "build/bin/TheAshenLink.exe").is_file() else ROOT / "build/bin/ds3sc_launcher.exe"
 
 
 class StartupTest(unittest.TestCase):

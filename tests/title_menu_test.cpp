@@ -21,7 +21,7 @@ volatile LONG ds3scOutlineVisible = 0;
 volatile LONG ds3scOutlineFallbackMarkers = 1;
 volatile LONG ds3scPlayerOutlineEnable = 0;
 volatile LONG ds3scDiamondMarkersEnable = 1;
-volatile LONG ds3scDiamondMarkerHeightCm = 155;
+volatile LONG ds3scDiamondMarkerHeightCm = 135;
 volatile LONG ds3scDisableVsync = 0;
 }
 

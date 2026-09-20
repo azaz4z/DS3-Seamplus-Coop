@@ -185,7 +185,9 @@ static bool IsSpanishLanguage() noexcept {
         }
     }
     if (iniPath[0] == '\0') {
-        if (GetFileAttributesA("SeamplusCoop\\ds3sc_settings.ini") != INVALID_FILE_ATTRIBUTES) {
+        if (GetFileAttributesA("TheAshenLink\\ds3sc_settings.ini") != INVALID_FILE_ATTRIBUTES) {
+            strcpy_s(iniPath, "TheAshenLink\\ds3sc_settings.ini");
+        } else if (GetFileAttributesA("SeamplusCoop\\ds3sc_settings.ini") != INVALID_FILE_ATTRIBUTES) {
             strcpy_s(iniPath, "SeamplusCoop\\ds3sc_settings.ini");
         } else {
             strcpy_s(iniPath, "SeamlessCoop\\ds3sc_settings.ini");

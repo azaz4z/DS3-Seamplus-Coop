@@ -16,7 +16,8 @@ def install(game: Path, release: Path):
     if not (game / "DarkSoulsIII.exe").is_file():
         raise RuntimeError(f"DarkSoulsIII.exe does not exist in {game}")
     manifest = json.loads((release / "manifest.json").read_text(encoding="utf-8"))
-    core_required = {"ds3sc_launcher.exe", "SeamlessCoop/ds3sc.dll", "SeamlessCoop/ds3sc_settings.ini"}
+    launcher_name = "TheAshenLink.exe" if (release / "TheAshenLink.exe").is_file() else "ds3sc_launcher.exe"
+    core_required = {launcher_name, f"{mod_folder}/ds3sc.dll", f"{mod_folder}/ds3sc_settings.ini"}
     if not core_required.issubset(manifest):
         missing = core_required - set(manifest.keys())
         raise RuntimeError(f"The manifest does not contain core essential files: {missing}")
@@ -33,7 +34,7 @@ def install(game: Path, release: Path):
     backup = ROOT / "build/backups" / ("installed-" + datetime.now().strftime("%Y%m%d-%H%M%S-%f"))
     changed = []
     try:
-        sources = [release / "ds3sc_launcher.exe", *sorted((release / "SeamlessCoop").rglob("*"))]
+        sources = [release / launcher_name, *sorted((release / mod_folder).rglob("*"))]
         for source in sources:
             if not source.is_file():
                 continue

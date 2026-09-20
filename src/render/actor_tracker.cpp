@@ -872,7 +872,7 @@ bool ActorTracker::ProjectWorldToScreen(
     std::lock_guard<std::recursive_mutex> lock(actorsMutex_);
     if (!cameraData_.valid || screenW <= 0.0f || screenH <= 0.0f) return false;
 
-    // Overhead indicator sits above character head (~1.55m above root feet pos)
+    // Overhead indicator sits above character head (~1.35m above root feet pos)
     const float dx = worldPos[0] - cameraData_.pos[0];
     const float dy = (worldPos[1] + heightOffset) - cameraData_.pos[1];
     const float dz = worldPos[2] - cameraData_.pos[2];
@@ -1059,7 +1059,7 @@ bool ActorTracker::IsRayOccludedByLocalPlayer(const float targetWorldPos[3]) con
 }
 
 extern "C" {
-__declspec(dllexport) volatile LONG ds3scDiamondMarkerHeightCm = 155;
+__declspec(dllexport) volatile LONG ds3scDiamondMarkerHeightCm = 135;
 }
 
 void ActorTracker::SetMarkerHeightOffset(float offset) noexcept {
@@ -1089,7 +1089,9 @@ void ActorTracker::LoadSettingsFromIni() noexcept {
         }
     }
     if (iniPath[0] == '\0' || GetFileAttributesA(iniPath) == INVALID_FILE_ATTRIBUTES) {
-        if (GetFileAttributesA("SeamplusCoop\\ds3sc_settings.ini") != INVALID_FILE_ATTRIBUTES) {
+        if (GetFileAttributesA("TheAshenLink\\ds3sc_settings.ini") != INVALID_FILE_ATTRIBUTES) {
+            strcpy_s(iniPath, "TheAshenLink\\ds3sc_settings.ini");
+        } else if (GetFileAttributesA("SeamplusCoop\\ds3sc_settings.ini") != INVALID_FILE_ATTRIBUTES) {
             strcpy_s(iniPath, "SeamplusCoop\\ds3sc_settings.ini");
         } else if (GetFileAttributesA("SeamlessCoop\\ds3sc_settings.ini") != INVALID_FILE_ATTRIBUTES) {
             strcpy_s(iniPath, "SeamlessCoop\\ds3sc_settings.ini");

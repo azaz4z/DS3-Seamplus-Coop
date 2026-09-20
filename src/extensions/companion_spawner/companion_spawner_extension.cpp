@@ -112,7 +112,9 @@ static bool IsSpanishLanguage() noexcept {
         }
     }
     if (iniPath[0] == '\0') {
-        if (GetFileAttributesA("SeamplusCoop\\ds3sc_settings.ini") != INVALID_FILE_ATTRIBUTES) {
+        if (GetFileAttributesA("TheAshenLink\\ds3sc_settings.ini") != INVALID_FILE_ATTRIBUTES) {
+            strcpy_s(iniPath, "TheAshenLink\\ds3sc_settings.ini");
+        } else if (GetFileAttributesA("SeamplusCoop\\ds3sc_settings.ini") != INVALID_FILE_ATTRIBUTES) {
             strcpy_s(iniPath, "SeamplusCoop\\ds3sc_settings.ini");
         } else {
             strcpy_s(iniPath, "SeamlessCoop\\ds3sc_settings.ini");
@@ -168,9 +170,9 @@ const wchar_t* LookupText(Address self, Address context, std::uint32_t language,
                 ContainsCaseInsensitive(orig, L"purchase downloadable") ||
                 ContainsCaseInsensitive(orig, L"add-on content")) {
                 if (wcslen(orig) <= 45) {
-                    return L"Seamplus";
+                    return L"The Ashen Link";
                 } else {
-                    return L"Configure Seamplus Co-op settings and features.";
+                    return L"Configure The Ashen Link: DS3 Coop settings and features.";
                 }
             }
         } __except (EXCEPTION_EXECUTE_HANDLER) {

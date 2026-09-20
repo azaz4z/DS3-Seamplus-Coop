@@ -14,7 +14,8 @@
 namespace {
 
 constexpr char kGameExecutable[] = "DarkSoulsIII.exe";
-constexpr char kModRelativePath[] = "SeamplusCoop\\ds3sc.dll";
+constexpr char kModRelativePath[] = "TheAshenLink\\ds3sc.dll";
+constexpr char kModSeamplusRelativePath[] = "SeamplusCoop\\ds3sc.dll";
 constexpr char kModLegacyRelativePath[] = "SeamlessCoop\\ds3sc.dll";
 constexpr char kSteamAppId[] = "374320";
 constexpr DWORD kInjectionTimeoutMs = 10'000;
@@ -109,7 +110,7 @@ void PrintError(const char* operation, DWORD error = GetLastError()) {
     }
     std::fprintf(stderr, "%s\n", buffer);
     if (g_GuiEnabled) {
-        MessageBoxA(nullptr, buffer, "Dark Souls III - Seamless Co-op", MB_OK | MB_ICONERROR);
+        MessageBoxA(nullptr, buffer, "The Ashen Link: DS3 Coop", MB_OK | MB_ICONERROR);
     }
     if (message) LocalFree(message);
 }
@@ -117,7 +118,7 @@ void PrintError(const char* operation, DWORD error = GetLastError()) {
 void ShowMessage(const std::wstring& message, UINT icon = MB_ICONERROR) {
     std::fwprintf(stderr, L"%ls\n", message.c_str());
     if (g_GuiEnabled) {
-        MessageBoxW(nullptr, message.c_str(), L"Dark Souls III - Seamless Co-op", MB_OK | icon);
+        MessageBoxW(nullptr, message.c_str(), L"The Ashen Link: DS3 Coop", MB_OK | icon);
     }
 }
 
@@ -265,7 +266,7 @@ int wmain(int argc, wchar_t** argv) try {
         else if (argument == L"--no-companion") enableCompanion = false;
         else if (argument == L"--no-gui") g_GuiEnabled = false;
         else if (argument == L"--help") {
-            std::puts("Usage: ds3sc_launcher [--game-dir DIR] [--dll PATH] [--check] [--no-gui] [--with-companion]");
+            std::puts("Usage: TheAshenLink [--game-dir DIR] [--dll PATH] [--check] [--no-gui] [--with-companion]");
             return 0;
         } else {
             ShowMessage(L"Unknown or incomplete argument. See --help.");
@@ -294,16 +295,25 @@ int wmain(int argc, wchar_t** argv) try {
     auto dllPath = modPath.is_absolute() ? modPath : directory / modPath;
     ec.clear();
     if (!std::filesystem::is_regular_file(dllPath, ec)) {
-        auto legacyPath = directory / kModLegacyRelativePath;
-        if (std::filesystem::is_regular_file(legacyPath, ec) && !ec) {
-            dllPath = legacyPath;
+        auto seamplusPath = directory / kModSeamplusRelativePath;
+        if (std::filesystem::is_regular_file(seamplusPath, ec) && !ec) {
+            dllPath = seamplusPath;
+        } else {
+            auto legacyPath = directory / kModLegacyRelativePath;
+            if (std::filesystem::is_regular_file(legacyPath, ec) && !ec) {
+                dllPath = legacyPath;
+            }
         }
     }
 
     ec.clear();
     if (!checkOnly && (!std::filesystem::is_regular_file(dllPath, ec) || ec)) {
-        auto localCoop = launcherDir / "SeamplusCoop";
-        std::string targetFolderName = "SeamplusCoop";
+        auto localCoop = launcherDir / "TheAshenLink";
+        std::string targetFolderName = "TheAshenLink";
+        if (!std::filesystem::is_regular_file(localCoop / "ds3sc.dll", ec)) {
+            localCoop = launcherDir / "SeamplusCoop";
+            targetFolderName = "SeamplusCoop";
+        }
         if (!std::filesystem::is_regular_file(localCoop / "ds3sc.dll", ec)) {
             localCoop = launcherDir / "SeamlessCoop";
             targetFolderName = "SeamlessCoop";
@@ -326,7 +336,7 @@ int wmain(int argc, wchar_t** argv) try {
     ec.clear();
     if (!std::filesystem::is_regular_file(dllPath, ec) || ec) {
         std::wstring msg = L"Mod DLL not found:\n" + dllPath.wstring() +
-                           L"\n\nMake sure the 'SeamplusCoop' folder containing ds3sc.dll "
+                           L"\n\nMake sure the 'TheAshenLink' folder containing ds3sc.dll "
                            L"is copied inside the Dark Souls III 'Game' folder.";
         ShowMessage(msg);
         return 1;
@@ -403,7 +413,7 @@ int wmain(int argc, wchar_t** argv) try {
     std::snprintf(buffer, sizeof(buffer), "Launcher error: %s", error.what());
     std::fprintf(stderr, "%s\n", buffer);
     if (g_GuiEnabled) {
-        MessageBoxA(nullptr, buffer, "Dark Souls III - Seamless Co-op", MB_OK | MB_ICONERROR);
+        MessageBoxA(nullptr, buffer, "The Ashen Link: DS3 Coop", MB_OK | MB_ICONERROR);
     }
     return 1;
 }

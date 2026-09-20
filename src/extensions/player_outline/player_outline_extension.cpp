@@ -24,7 +24,9 @@ void ResolveSettingsPath(char* outPath, std::size_t capacity) noexcept {
     }
 
     if (outPath[0] == '\0') {
-        if (GetFileAttributesA("SeamplusCoop\\ds3sc_settings.ini") != INVALID_FILE_ATTRIBUTES) {
+        if (GetFileAttributesA("TheAshenLink\\ds3sc_settings.ini") != INVALID_FILE_ATTRIBUTES) {
+            strcpy_s(outPath, capacity, "TheAshenLink\\ds3sc_settings.ini");
+        } else if (GetFileAttributesA("SeamplusCoop\\ds3sc_settings.ini") != INVALID_FILE_ATTRIBUTES) {
             strcpy_s(outPath, capacity, "SeamplusCoop\\ds3sc_settings.ini");
         } else {
             strcpy_s(outPath, capacity, "SeamlessCoop\\ds3sc_settings.ini");

@@ -18,6 +18,10 @@
 # Local reverse engineering, memory dumps, crash logs and analysis scratchpad
 /analysis/
 
+# GitHub screenshots & media assets
+/github/*
+!/github/*.JPG
+
 # Python cache
 __pycache__/
 *.pyc

@@ -1,4 +1,4 @@
-"""Compile ds3sc_launcher.exe and modular ds3sc_companion.dll extensions via MSVC.
+"""Compile TheAshenLink.exe and modular ds3sc_companion.dll extensions via MSVC.
 """
 import argparse
 import json
@@ -29,7 +29,7 @@ def parse_args():
     default_counters = cfg.get("counters", True)
     default_fps_unlock = cfg.get("fps_unlock", True)
 
-    parser = argparse.ArgumentParser(description="DS3 Seamless Co-op Binary Builder")
+    parser = argparse.ArgumentParser(description="The Ashen Link: DS3 Coop Binary Builder")
     parser.add_argument("--with-ally-outline", dest="ally_outline", action="store_true", default=default_outline,
                         help="Include D3D11 ally outline extension")
     parser.add_argument("--without-ally-outline", dest="ally_outline", action="store_false",
@@ -61,7 +61,7 @@ def parse_args():
 
     parser.add_argument("--no-companion", dest="legacy_no_companion", action="store_true",
                         help="Alias to exclude companion spawner")
-    parser.add_argument("--skip-launcher", action="store_true", help="Skip compilation of ds3sc_launcher.exe")
+    parser.add_argument("--skip-launcher", action="store_true", help="Skip compilation of TheAshenLink.exe")
     parser.add_argument("--skip-install", action="store_true", help="Compile without modifying game installation")
     args, unknown = parser.parse_known_args()
     if args.legacy_no_companion:
@@ -252,13 +252,14 @@ def build_extensions(cl_exe: str, enable_outline: bool, enable_player_outline: b
 
     comp_dll = comp_out / "ds3sc_companion.dll"
     print(f"      [OK] ds3sc_companion.dll compiled ({comp_dll.stat().st_size:,} bytes)")
-    for target_dir in [ROOT / "build/SeamplusCoop", ROOT / "SeamplusCoop", ROOT / "build/SeamlessCoop", ROOT / "SeamlessCoop"]:
+    for target_dir in [ROOT / "build/TheAshenLink", ROOT / "TheAshenLink", ROOT / "build/SeamplusCoop", ROOT / "SeamplusCoop", ROOT / "build/SeamlessCoop", ROOT / "SeamlessCoop"]:
         if target_dir.is_dir():
             target_coop = target_dir / "ds3sc_companion.dll"
             shutil.copy2(comp_dll, target_coop)
             print(f"      [OK] Copied to {target_coop}")
 
     game_dirs = [
+        Path(r"C:/Program Files (x86)/Steam/steamapps/common/DARK SOULS III/Game/TheAshenLink"),
         Path(r"C:/Program Files (x86)/Steam/steamapps/common/DARK SOULS III/Game/SeamplusCoop"),
         Path(r"C:/Program Files (x86)/Steam/steamapps/common/DARK SOULS III/Game/SeamlessCoop"),
     ]
@@ -280,38 +281,48 @@ def build_extensions(cl_exe: str, enable_outline: bool, enable_player_outline: b
                 except Exception as ex:
                     print(f"      [WARNING] Could not copy to {target_dll}: {ex}")
 
-def build_launcher(cl_exe: str):
+def build_launcher(cl_exe: str, skip_install: bool = False):
     bin_out = ROOT / "build/bin"
     bin_out.mkdir(parents=True, exist_ok=True)
     launcher_src = ROOT / "src/launcher/main.cpp"
-    launcher_exe = bin_out / "ds3sc_launcher.exe"
+    launcher_exe = bin_out / "TheAshenLink.exe"
 
     if launcher_exe.is_file() and launcher_exe.stat().st_mtime >= launcher_src.stat().st_mtime:
-        print(f"      [Cache] ds3sc_launcher.exe up to date ({launcher_exe.stat().st_size:,} bytes, main.cpp unchanged).")
-        return
-
-    print("Compiling native ds3sc_launcher.exe with MSVC...")
-    cmd_launch = [
-        cl_exe, "/nologo", "/std:c++20", "/EHsc", "/W4", "/WX", "/O2", "/utf-8",
-        "/permissive-", "/DUNICODE", "/D_UNICODE",
-        str(launcher_src),
-        "/Fe:ds3sc_launcher.exe",
-        "/link", "Kernel32.lib", "Psapi.lib", "Advapi32.lib", "User32.lib"
-    ]
-    res = subprocess.run(cmd_launch, cwd=bin_out, capture_output=True, text=True)
-    if res.returncode != 0:
-        print("STDERR:\n", res.stderr)
-        print("STDOUT:\n", res.stdout)
-        raise RuntimeError("Failed to compile ds3sc_launcher.exe")
-    print(f"      [OK] ds3sc_launcher.exe compiled ({launcher_exe.stat().st_size:,} bytes)")
+        print(f"      [Cache] TheAshenLink.exe up to date ({launcher_exe.stat().st_size:,} bytes, main.cpp unchanged).")
+    else:
+        print("Compiling native TheAshenLink.exe with MSVC...")
+        cmd_launch = [
+            cl_exe, "/nologo", "/std:c++20", "/EHsc", "/W4", "/WX", "/O2", "/utf-8",
+            "/permissive-", "/DUNICODE", "/D_UNICODE",
+            str(launcher_src),
+            "/Fe:TheAshenLink.exe",
+            "/link", "Kernel32.lib", "Psapi.lib", "Advapi32.lib", "User32.lib"
+        ]
+        res = subprocess.run(cmd_launch, cwd=bin_out, capture_output=True, text=True)
+        if res.returncode != 0:
+            print("STDERR:\n", res.stderr)
+            print("STDOUT:\n", res.stdout)
+            raise RuntimeError("Failed to compile TheAshenLink.exe")
+        print(f"      [OK] TheAshenLink.exe compiled ({launcher_exe.stat().st_size:,} bytes)")
 
     # Clean any residual launcher in root
-    target_launcher = ROOT / "ds3sc_launcher.exe"
-    if target_launcher.is_file():
+    for target_name in ["TheAshenLink.exe", "ds3sc_launcher.exe"]:
+        target_launcher = ROOT / target_name
+        if target_launcher.is_file():
+            try:
+                target_launcher.unlink()
+            except OSError:
+                pass
+
+    # Copy to game installation if available
+    game_exe_dir = Path(r"C:/Program Files (x86)/Steam/steamapps/common/DARK SOULS III/Game")
+    if not skip_install and (game_exe_dir / "DarkSoulsIII.exe").is_file():
+        target_game_launcher = game_exe_dir / "TheAshenLink.exe"
         try:
-            target_launcher.unlink()
-        except OSError:
-            pass
+            shutil.copy2(launcher_exe, target_game_launcher)
+            print(f"      [OK] Copied launcher to game installation: {target_game_launcher}")
+        except Exception as ex:
+            print(f"      [WARNING] Could not copy launcher to game installation: {ex}")
 
 def main():
     args = parse_args()
@@ -323,6 +334,8 @@ def main():
     # Sync locale files in locale directories
     locale_srcs = [
         ROOT / "src/languages/english.json",
+        ROOT / "build/TheAshenLink/locale/english.json",
+        ROOT / "TheAshenLink/locale/english.json",
         ROOT / "build/SeamplusCoop/locale/english.json",
         ROOT / "SeamplusCoop/locale/english.json",
         ROOT / "build/SeamlessCoop/locale/english.json",
@@ -332,7 +345,7 @@ def main():
 
     spanish_src = ROOT / "src/languages/spanish.json"
 
-    for target_dir in [ROOT / "build/SeamplusCoop", ROOT / "SeamplusCoop", ROOT / "build/SeamlessCoop", ROOT / "SeamlessCoop"]:
+    for target_dir in [ROOT / "build/TheAshenLink", ROOT / "TheAshenLink", ROOT / "build/SeamplusCoop", ROOT / "SeamplusCoop", ROOT / "build/SeamlessCoop", ROOT / "SeamlessCoop"]:
         if target_dir.is_dir():
             target_loc = target_dir / "locale"
             target_loc.mkdir(parents=True, exist_ok=True)
@@ -347,7 +360,7 @@ def main():
 
     # Compile launcher unless skipped
     if not args.skip_launcher:
-        build_launcher(cl_exe)
+        build_launcher(cl_exe, skip_install=args.skip_install)
 
     print("[OK] Modular build completed successfully.")
 
