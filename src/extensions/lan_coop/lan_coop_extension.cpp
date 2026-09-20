@@ -136,6 +136,14 @@ public:
     virtual uint64_t RequestLobbyList() {
         OutputDebugStringA("[ds3sc-lan-coop] RequestLobbyList: Searching LAN beacons...\n");
         auto* inst = GetLanCoopInstance();
+        if (inst) {
+            inst->TriggerGuestSearch();
+        }
+        uint16_t port = inst ? inst->GetPort() : network::kDefaultLanPort;
+        if (!network::LanTransport::Instance().IsInitialized()) {
+            network::LanTransport::Instance().Initialize(port, false);
+        }
+
         uint32_t hash = inst ? inst->GetPasswordHash() : 0;
         std::string hostIp;
         uint16_t hostPort = 0;
@@ -167,6 +175,10 @@ public:
         auto* inst = GetLanCoopInstance();
         if (inst) {
             inst->TriggerHostSession();
+        } else {
+            if (!network::LanTransport::Instance().IsInitialized()) {
+                network::LanTransport::Instance().Initialize(network::kDefaultLanPort, true);
+            }
         }
 
         LobbyCreated_t created{};
@@ -178,6 +190,11 @@ public:
 
     virtual uint64_t JoinLobby(uint64_t steamIDLobby) {
         OutputDebugStringA("[ds3sc-lan-coop] JoinLobby: Joining virtual LAN lobby...\n");
+        auto* inst = GetLanCoopInstance();
+        uint16_t port = inst ? inst->GetPort() : network::kDefaultLanPort;
+        if (!network::LanTransport::Instance().IsInitialized()) {
+            network::LanTransport::Instance().Initialize(port, false);
+        }
         LobbyEnter_t entered{};
         entered.m_ulSteamIDLobby = steamIDLobby;
         entered.m_rgfChatPermissions = 0xFFFFFFFF;
@@ -189,7 +206,12 @@ public:
 
     virtual void LeaveLobby(uint64_t /*steamIDLobby*/) {
         OutputDebugStringA("[ds3sc-lan-coop] LeaveLobby: Exiting LAN session.\n");
-        network::LanTransport::Instance().StopBeaconBroadcaster();
+        auto* inst = GetLanCoopInstance();
+        if (inst) {
+            inst->DissolveSession();
+        } else {
+            network::LanTransport::Instance().CloseSession();
+        }
     }
 
     virtual bool InviteUserToLobby(uint64_t, uint64_t) { return true; }
@@ -290,7 +312,13 @@ public:
     }
 
     virtual bool AcceptSessionWithUser(const void*) { return true; }
-    virtual bool CloseSessionWithUser(const void*) { return true; }
+    virtual bool CloseSessionWithUser(const void* identityRemote) {
+        if (identityRemote) {
+            uint64_t targetId = *reinterpret_cast<const uint64_t*>(reinterpret_cast<const char*>(identityRemote) + 8);
+            network::LanTransport::Instance().UnregisterPeer(targetId);
+        }
+        return true;
+    }
     virtual bool CloseChannelWithUser(const void*, int) { return true; }
     virtual int GetSessionConnectionInfo(const void*, void*, void*) { return 1; }
 };
@@ -495,8 +523,8 @@ bool LanCoopExtension::Initialize() noexcept {
     }
     network::LanTransport::Instance().SetLocalSteamId(localId);
 
-    uint16_t port = port_.load(std::memory_order_relaxed);
-    network::LanTransport::Instance().Initialize(port, false);
+    // Socket is bound on-demand upon hosting or searching/joining,
+    // and closed immediately upon dissolving the party.
 
     InstallSteamHooks();
 
@@ -546,11 +574,25 @@ void LanCoopExtension::TriggerHostSession() noexcept {
     isHost_.store(true, std::memory_order_release);
     uint16_t port = port_.load(std::memory_order_relaxed);
     uint32_t hash = passwordHash_.load(std::memory_order_relaxed);
+    if (!network::LanTransport::Instance().IsInitialized()) {
+        network::LanTransport::Instance().Initialize(port, true);
+    }
     network::LanTransport::Instance().StartBeaconBroadcaster("TheAshenLink_LAN", hash, port);
+    OutputDebugStringA("[ds3sc-lan-coop] Host session active on LAN port.\n");
 }
 
 void LanCoopExtension::TriggerGuestSearch() noexcept {
     isHost_.store(false, std::memory_order_release);
+    uint16_t port = port_.load(std::memory_order_relaxed);
+    if (!network::LanTransport::Instance().IsInitialized()) {
+        network::LanTransport::Instance().Initialize(port, false);
+    }
+}
+
+void LanCoopExtension::DissolveSession() noexcept {
+    isHost_.store(false, std::memory_order_release);
+    network::LanTransport::Instance().CloseSession();
+    OutputDebugStringA("[ds3sc-lan-coop] LAN session dissolved and UDP port closed.\n");
 }
 
 std::shared_ptr<IExtension> CreateLanCoopExtension() noexcept {
@@ -582,6 +624,9 @@ __declspec(dllexport) uint16_t ds3sc_get_lan_port() {
 
 __declspec(dllexport) void ds3sc_set_lan_mode(int mode) {
     InterlockedExchange(&ds3scConnectionMode, mode != 0 ? 1 : 0);
+    if (mode == 0 && ds3sc::extensions::GetLanCoopInstance()) {
+        ds3sc::extensions::GetLanCoopInstance()->DissolveSession();
+    }
 }
 
 }

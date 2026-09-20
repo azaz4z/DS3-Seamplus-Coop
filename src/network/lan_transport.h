@@ -57,6 +57,7 @@ public:
     ~LanTransport() override;
 
     bool Initialize(uint16_t localPort = kDefaultLanPort, bool isHost = true) noexcept;
+    void CloseSession() noexcept;
     void Shutdown() noexcept;
 
     int Send(std::uint64_t peer, std::span<const std::uint8_t> packet,

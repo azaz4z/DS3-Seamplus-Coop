@@ -28,6 +28,7 @@ public:
 
     void TriggerHostSession() noexcept;
     void TriggerGuestSearch() noexcept;
+    void DissolveSession() noexcept;
 
 private:
     void LoadSettings() noexcept;

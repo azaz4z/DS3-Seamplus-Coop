@@ -87,7 +87,7 @@ bool LanTransport::Initialize(uint16_t localPort, bool isHost) noexcept {
     return true;
 }
 
-void LanTransport::Shutdown() noexcept {
+void LanTransport::CloseSession() noexcept {
     StopBeaconBroadcaster();
 
     if (socket_ != INVALID_SOCKET) {
@@ -95,9 +95,8 @@ void LanTransport::Shutdown() noexcept {
         socket_ = INVALID_SOCKET;
     }
 
-    if (isInitialized_.exchange(false)) {
-        WSACleanup();
-    }
+    boundPort_ = 0;
+    isInitialized_.store(false);
 
     {
         std::lock_guard lock(peersMutex_);
@@ -109,6 +108,11 @@ void LanTransport::Shutdown() noexcept {
         std::lock_guard lock(queueMutex_);
         incomingQueue_.clear();
     }
+}
+
+void LanTransport::Shutdown() noexcept {
+    CloseSession();
+    WSACleanup();
 }
 
 int LanTransport::Send(std::uint64_t peer, std::span<const std::uint8_t> packet,
