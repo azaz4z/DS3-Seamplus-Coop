@@ -94,9 +94,16 @@ void LanTransport::Shutdown() noexcept {
         WSACleanup();
     }
 
-    std::lock_guard lock(peersMutex_);
-    peerToAddress_.clear();
-    addressKeyToPeer_.clear();
+    {
+        std::lock_guard lock(peersMutex_);
+        peerToAddress_.clear();
+        addressKeyToPeer_.clear();
+    }
+
+    {
+        std::lock_guard lock(queueMutex_);
+        incomingQueue_.clear();
+    }
 }
 
 int LanTransport::Send(std::uint64_t peer, std::span<const std::uint8_t> packet,
@@ -113,6 +120,46 @@ int LanTransport::Send(std::uint64_t peer, std::span<const std::uint8_t> packet,
 
     const int sent = sendto(socket_, reinterpret_cast<const char*>(packet.data()),
                             static_cast<int>(packet.size()), 0,
+                            reinterpret_cast<const sockaddr*>(&targetAddr), sizeof(targetAddr));
+    return (sent >= 0) ? sent : -1;
+}
+
+int LanTransport::SendFramed(uint64_t targetPeer, uint64_t senderSteamId, int channel,
+                             const void* data, size_t size) noexcept {
+    if (!isInitialized_.load() || socket_ == INVALID_SOCKET) return -1;
+
+    std::vector<uint8_t> buffer(sizeof(LanPacketHeader) + size);
+    auto* header = reinterpret_cast<LanPacketHeader*>(buffer.data());
+    header->magic = kDs3scLanPacketMagic;
+    header->senderSteamId = senderSteamId;
+    header->targetSteamId = targetPeer;
+    header->channel = static_cast<uint16_t>(channel);
+    header->payloadLength = static_cast<uint32_t>(size);
+
+    if (size > 0 && data != nullptr) {
+        std::memcpy(buffer.data() + sizeof(LanPacketHeader), data, size);
+    }
+
+    sockaddr_in targetAddr{};
+    bool found = false;
+    {
+        std::lock_guard lock(peersMutex_);
+        auto it = peerToAddress_.find(targetPeer);
+        if (it != peerToAddress_.end()) {
+            targetAddr = it->second;
+            found = true;
+        }
+    }
+
+    if (!found) {
+        // Fallback: broadcast packet if peer address is unknown
+        targetAddr.sin_family = AF_INET;
+        targetAddr.sin_port = htons(boundPort_ != 0 ? boundPort_ : kDefaultLanPort);
+        targetAddr.sin_addr.s_addr = INADDR_BROADCAST;
+    }
+
+    const int sent = sendto(socket_, reinterpret_cast<const char*>(buffer.data()),
+                            static_cast<int>(buffer.size()), 0,
                             reinterpret_cast<const sockaddr*>(&targetAddr), sizeof(targetAddr));
     return (sent >= 0) ? sent : -1;
 }
@@ -134,6 +181,83 @@ void LanTransport::UnregisterPeer(std::uint64_t peerId) noexcept {
         addressKeyToPeer_.erase(MakeAddressKey(it->second));
         peerToAddress_.erase(it);
     }
+}
+
+void LanTransport::PollIncomingPackets() noexcept {
+    if (!isInitialized_.load() || socket_ == INVALID_SOCKET) return;
+
+    uint8_t tempBuf[65536];
+    sockaddr_in fromAddr{};
+    int fromLen = sizeof(fromAddr);
+
+    while (true) {
+        int bytesRead = recvfrom(socket_, reinterpret_cast<char*>(tempBuf), sizeof(tempBuf), 0,
+                                 reinterpret_cast<sockaddr*>(&fromAddr), &fromLen);
+        if (bytesRead <= 0) break;
+
+        // Check if this is a framed data packet
+        if (bytesRead >= static_cast<int>(sizeof(LanPacketHeader))) {
+            const auto* header = reinterpret_cast<const LanPacketHeader*>(tempBuf);
+            if (header->magic == kDs3scLanPacketMagic) {
+                // Auto-register peer
+                if (header->senderSteamId != 0) {
+                    RegisterPeer(header->senderSteamId, fromAddr);
+                }
+
+                const size_t payloadSize = bytesRead - sizeof(LanPacketHeader);
+                QueuedLanPacket queued{};
+                queued.senderSteamId = header->senderSteamId;
+                queued.channel = header->channel;
+                if (payloadSize > 0) {
+                    queued.payload.assign(tempBuf + sizeof(LanPacketHeader), tempBuf + bytesRead);
+                }
+
+                std::lock_guard lock(queueMutex_);
+                incomingQueue_.push_back(std::move(queued));
+                continue;
+            }
+        }
+
+        // Check if beacon
+        if (bytesRead == sizeof(LanBeaconPacket)) {
+            const auto* beacon = reinterpret_cast<const LanBeaconPacket*>(tempBuf);
+            if (beacon->magic == kDs3scLanMagic && beacon->hostSteamId != 0) {
+                RegisterPeer(beacon->hostSteamId, fromAddr);
+            }
+        }
+    }
+}
+
+bool LanTransport::IsPacketAvailable(int channel, uint32_t* outSize) noexcept {
+    PollIncomingPackets();
+    std::lock_guard lock(queueMutex_);
+    for (const auto& pkt : incomingQueue_) {
+        if (channel < 0 || pkt.channel == channel) {
+            if (outSize) *outSize = static_cast<uint32_t>(pkt.payload.size());
+            return true;
+        }
+    }
+    return false;
+}
+
+bool LanTransport::ReadPacket(void* pubDest, uint32_t cubDest, uint32_t* pcubMsgSize,
+                              uint64_t* psteamIDRemote, int channel) noexcept {
+    PollIncomingPackets();
+    std::lock_guard lock(queueMutex_);
+    for (auto it = incomingQueue_.begin(); it != incomingQueue_.end(); ++it) {
+        if (channel < 0 || it->channel == channel) {
+            const uint32_t copyLen = (std::min)(cubDest, static_cast<uint32_t>(it->payload.size()));
+            if (pubDest && copyLen > 0) {
+                std::memcpy(pubDest, it->payload.data(), copyLen);
+            }
+            if (pcubMsgSize) *pcubMsgSize = static_cast<uint32_t>(it->payload.size());
+            if (psteamIDRemote) *psteamIDRemote = it->senderSteamId;
+
+            incomingQueue_.erase(it);
+            return true;
+        }
+    }
+    return false;
 }
 
 int LanTransport::ReceivePacket(std::uint64_t& outPeer, std::vector<uint8_t>& outBuffer,
@@ -167,17 +291,19 @@ int LanTransport::ReceivePacket(std::uint64_t& outPeer, std::vector<uint8_t>& ou
 }
 
 void LanTransport::StartBeaconBroadcaster(const std::string& sessionName,
-                                          uint32_t passwordHash, uint16_t port) noexcept {
+                                          uint32_t passwordHash, uint16_t port,
+                                          uint64_t hostSteamId) noexcept {
     StopBeaconBroadcaster();
     if (!isInitialized_.load() || socket_ == INVALID_SOCKET) return;
 
     beaconRunning_.store(true);
-    beaconThread_ = std::thread([this, sessionName, passwordHash, port]() {
+    beaconThread_ = std::thread([this, sessionName, passwordHash, port, hostSteamId]() {
         LanBeaconPacket packet{};
         packet.magic = kDs3scLanMagic;
         packet.version = 1;
         packet.port = port;
         packet.passwordHash = passwordHash;
+        packet.hostSteamId = (hostSteamId != 0) ? hostSteamId : localSteamId_;
         strncpy_s(packet.sessionName, sessionName.c_str(), sizeof(packet.sessionName) - 1);
 
         sockaddr_in broadcastAddr{};
@@ -205,7 +331,8 @@ void LanTransport::StopBeaconBroadcaster() noexcept {
 }
 
 bool LanTransport::DiscoverHost(std::string& outHostIp, uint16_t& outHostPort,
-                                uint32_t expectedPasswordHash, uint32_t timeoutMs) noexcept {
+                                uint64_t& outHostSteamId, uint32_t expectedPasswordHash,
+                                uint32_t timeoutMs) noexcept {
     if (!isInitialized_.load() || socket_ == INVALID_SOCKET) return false;
 
     const auto start = std::chrono::steady_clock::now();
@@ -223,6 +350,8 @@ bool LanTransport::DiscoverHost(std::string& outHostIp, uint16_t& outHostPort,
                 inet_ntop(AF_INET, &(fromAddr.sin_addr), ipStr, sizeof(ipStr));
                 outHostIp = ipStr;
                 outHostPort = beacon.port;
+                outHostSteamId = beacon.hostSteamId;
+                RegisterPeer(beacon.hostSteamId, fromAddr);
                 return true;
             }
         }

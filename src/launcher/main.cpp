@@ -372,6 +372,18 @@ int wmain(int argc, wchar_t** argv) try {
     Handle process(rawProcess.hProcess);
     Handle mainThread(rawProcess.hThread);
     SuspendedProcessGuard startupGuard(process.get());
+
+    if (enableCompanion) {
+        const auto companionDll = dllPath.parent_path() / "ds3sc_companion.dll";
+        if (std::filesystem::is_regular_file(companionDll)) {
+            if (!InjectLibrary(process.get(), companionDll)) {
+                ShowMessage(L"Could not inject companion DLL (ds3sc_companion.dll) into DarkSoulsIII.exe.\n\n"
+                            L"Check that your antivirus is not blocking the injection.");
+                return 2;
+            }
+        }
+    }
+
     if (!InjectLibrary(process.get(), dllPath)) {
         ShowMessage(L"Could not inject mod DLL (ds3sc.dll) into DarkSoulsIII.exe.\n\n"
                     L"Check that your antivirus is not blocking the injection and that "
@@ -379,26 +391,14 @@ int wmain(int argc, wchar_t** argv) try {
         return 1;
     }
 
+    // Give extension worker a brief moment to install hooks while main thread is suspended
+    Sleep(50);
+
     if (ResumeThread(mainThread.get()) == static_cast<DWORD>(-1)) {
         PrintError("Could not resume game main thread");
         return 1;
     }
     startupGuard.resumed();
-
-    if (enableCompanion) {
-        const auto companionDll = dllPath.parent_path() / "ds3sc_companion.dll";
-        if (std::filesystem::is_regular_file(companionDll)) {
-            WaitForInputIdle(process.get(), 20'000);
-            if (WaitForSingleObject(process.get(), 0) == WAIT_OBJECT_0) {
-                ShowMessage(L"DS3 closed before loading outline module.");
-                return 1;
-            }
-            if (!InjectLibrary(process.get(), companionDll)) {
-                ShowMessage(L"DS3 started, but ds3sc_companion.dll could not be loaded.");
-                return 2;
-            }
-        }
-    }
     if (WaitForSingleObject(process.get(), 1500) == WAIT_OBJECT_0) {
         DWORD exitCode = 0;
         GetExitCodeProcess(process.get(), &exitCode);
