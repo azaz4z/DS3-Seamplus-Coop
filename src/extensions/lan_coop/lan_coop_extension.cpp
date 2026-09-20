@@ -128,12 +128,52 @@ struct P2PSessionRequest_t {
 // ---------------------------------------------------------------------------
 class VirtualSteamMatchmaking009 {
 public:
-    virtual int GetFavoriteGameCount() { return 0; }
-    virtual bool GetFavoriteGame(int, uint32_t*, uint32_t*, uint16_t*, uint16_t*, uint32_t*, uint32_t*) { return false; }
-    virtual int AddFavoriteGame(uint32_t, uint32_t, uint16_t, uint16_t, uint32_t, uint32_t) { return 0; }
-    virtual bool RemoveFavoriteGame(uint32_t, uint32_t, uint16_t, uint16_t, uint32_t) { return false; }
+    void SetReal(void* pReal) noexcept { m_realMatchmaking = pReal; }
+    void* GetReal() const noexcept { return m_realMatchmaking; }
+
+private:
+    void* m_realMatchmaking = nullptr;
+
+    template <typename Ret, typename... Args>
+    Ret CallReal(size_t slot, Args... args) {
+        if (!m_realMatchmaking) return Ret{};
+        void** vtable = *reinterpret_cast<void***>(m_realMatchmaking);
+        using Fn = Ret(*)(void*, Args...);
+        auto fn = reinterpret_cast<Fn>(vtable[slot]);
+        return fn(m_realMatchmaking, args...);
+    }
+
+    template <typename... Args>
+    void CallRealVoid(size_t slot, Args... args) {
+        if (!m_realMatchmaking) return;
+        void** vtable = *reinterpret_cast<void***>(m_realMatchmaking);
+        using Fn = void(*)(void*, Args...);
+        auto fn = reinterpret_cast<Fn>(vtable[slot]);
+        fn(m_realMatchmaking, args...);
+    }
+
+public:
+    virtual int GetFavoriteGameCount() {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) return CallReal<int>(0);
+        return 0;
+    }
+    virtual bool GetFavoriteGame(int iGame, uint32_t* pnAppID, uint32_t* pnIP, uint16_t* pnConnPort, uint16_t* pnQueryPort, uint32_t* punFlags, uint32_t* pRTime32LastPlayedOnServer) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) return CallReal<bool>(1, iGame, pnAppID, pnIP, pnConnPort, pnQueryPort, punFlags, pRTime32LastPlayedOnServer);
+        return false;
+    }
+    virtual int AddFavoriteGame(uint32_t nAppID, uint32_t nIP, uint16_t nConnPort, uint16_t nQueryPort, uint32_t unFlags, uint32_t rTime32LastPlayedOnServer) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) return CallReal<int>(2, nAppID, nIP, nConnPort, nQueryPort, unFlags, rTime32LastPlayedOnServer);
+        return 0;
+    }
+    virtual bool RemoveFavoriteGame(uint32_t nAppID, uint32_t nIP, uint16_t nConnPort, uint16_t nQueryPort, uint32_t unFlags) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) return CallReal<bool>(3, nAppID, nIP, nConnPort, nQueryPort, unFlags);
+        return false;
+    }
 
     virtual uint64_t RequestLobbyList() {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            return CallReal<uint64_t>(4);
+        }
         OutputDebugStringA("[ds3sc-lan-coop] RequestLobbyList: Searching LAN beacons...\n");
         auto* inst = GetLanCoopInstance();
         if (inst) {
@@ -158,19 +198,60 @@ public:
         return 0x2001ULL;
     }
 
-    virtual void AddRequestLobbyListStringFilter(const char*, const char*, int) {}
-    virtual void AddRequestLobbyListNumericalFilter(const char*, int, int) {}
-    virtual void AddRequestLobbyListNearValueFilter(const char*, int) {}
-    virtual void AddRequestLobbyListFilterSlotsAvailable(int) {}
-    virtual void AddRequestLobbyListDistanceFilter(int) {}
-    virtual void AddRequestLobbyListResultCountFilter(int) {}
-    virtual void AddRequestLobbyListCompatibleMembersFilter(uint64_t) {}
+    virtual void AddRequestLobbyListStringFilter(const char* pchKeyToMatch, const char* pchValueToMatch, int eComparisonType) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            CallRealVoid(5, pchKeyToMatch, pchValueToMatch, eComparisonType);
+            return;
+        }
+    }
+    virtual void AddRequestLobbyListNumericalFilter(const char* pchKeyToMatch, int nValueToMatch, int eComparisonType) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            CallRealVoid(6, pchKeyToMatch, nValueToMatch, eComparisonType);
+            return;
+        }
+    }
+    virtual void AddRequestLobbyListNearValueFilter(const char* pchKeyToMatch, int nValueToBeCloseTo) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            CallRealVoid(7, pchKeyToMatch, nValueToBeCloseTo);
+            return;
+        }
+    }
+    virtual void AddRequestLobbyListFilterSlotsAvailable(int nSlotsAvailable) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            CallRealVoid(8, nSlotsAvailable);
+            return;
+        }
+    }
+    virtual void AddRequestLobbyListDistanceFilter(int eLobbyDistanceFilter) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            CallRealVoid(9, eLobbyDistanceFilter);
+            return;
+        }
+    }
+    virtual void AddRequestLobbyListResultCountFilter(int cMaxResults) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            CallRealVoid(10, cMaxResults);
+            return;
+        }
+    }
+    virtual void AddRequestLobbyListCompatibleMembersFilter(uint64_t steamIDLobby) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            CallRealVoid(11, steamIDLobby);
+            return;
+        }
+    }
 
     virtual uint64_t GetLobbyByIndex(int iLobby) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            return CallReal<uint64_t>(12, iLobby);
+        }
         return (iLobby == 0) ? kLanLobbyId : 0;
     }
 
-    virtual uint64_t CreateLobby(int /*eLobbyType*/, int /*cMaxMembers*/) {
+    virtual uint64_t CreateLobby(int eLobbyType, int cMaxMembers) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            return CallReal<uint64_t>(13, eLobbyType, cMaxMembers);
+        }
         OutputDebugStringA("[ds3sc-lan-coop] CreateLobby: Starting LAN host beacon...\n");
         auto* inst = GetLanCoopInstance();
         if (inst) {
@@ -189,6 +270,9 @@ public:
     }
 
     virtual uint64_t JoinLobby(uint64_t steamIDLobby) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            return CallReal<uint64_t>(14, steamIDLobby);
+        }
         OutputDebugStringA("[ds3sc-lan-coop] JoinLobby: Joining virtual LAN lobby...\n");
         auto* inst = GetLanCoopInstance();
         uint16_t port = inst ? inst->GetPort() : network::kDefaultLanPort;
@@ -204,7 +288,11 @@ public:
         return 0x2003ULL;
     }
 
-    virtual void LeaveLobby(uint64_t /*steamIDLobby*/) {
+    virtual void LeaveLobby(uint64_t steamIDLobby) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            CallRealVoid(15, steamIDLobby);
+            return;
+        }
         OutputDebugStringA("[ds3sc-lan-coop] LeaveLobby: Exiting LAN session.\n");
         auto* inst = GetLanCoopInstance();
         if (inst) {
@@ -214,13 +302,31 @@ public:
         }
     }
 
-    virtual bool InviteUserToLobby(uint64_t, uint64_t) { return true; }
-    virtual int GetNumLobbyMembers(uint64_t) { return 2; }
-    virtual uint64_t GetLobbyMemberByIndex(uint64_t, int iMember) {
+    virtual bool InviteUserToLobby(uint64_t steamIDLobby, uint64_t steamIDInvitee) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            return CallReal<bool>(16, steamIDLobby, steamIDInvitee);
+        }
+        return true;
+    }
+
+    virtual int GetNumLobbyMembers(uint64_t steamIDLobby) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            return CallReal<int>(17, steamIDLobby);
+        }
+        return 2;
+    }
+
+    virtual uint64_t GetLobbyMemberByIndex(uint64_t steamIDLobby, int iMember) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            return CallReal<uint64_t>(18, steamIDLobby, iMember);
+        }
         return (iMember == 0) ? network::LanTransport::Instance().LocalSteamId() : 0x0110000100000002ULL;
     }
 
-    virtual const char* GetLobbyData(uint64_t, const char* pchKey) {
+    virtual const char* GetLobbyData(uint64_t steamIDLobby, const char* pchKey) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            return CallReal<const char*>(19, steamIDLobby, pchKey);
+        }
         if (!pchKey) return "";
         if (strcmp(pchKey, "ds3sc_hash") == 0) {
             static char hashStr[32];
@@ -231,26 +337,131 @@ public:
         return "";
     }
 
-    virtual bool SetLobbyData(uint64_t, const char*, const char*) { return true; }
-    virtual int GetLobbyDataCount(uint64_t) { return 1; }
-    virtual bool GetLobbyDataByIndex(uint64_t, int, char*, int, char*, int) { return false; }
-    virtual bool DeleteLobbyData(uint64_t, const char*) { return true; }
-    virtual const char* GetLobbyMemberData(uint64_t, uint64_t, const char*) { return ""; }
-    virtual void SetLobbyMemberData(uint64_t, const char*, const char*) {}
-    virtual bool SendLobbyChatMsg(uint64_t, const void*, int) { return true; }
-    virtual int GetLobbyChatEntry(uint64_t, int, uint64_t*, void*, int, int*) { return 0; }
-    virtual bool RequestLobbyData(uint64_t) { return true; }
-    virtual void SetLobbyGameServer(uint64_t, uint32_t, uint16_t, uint64_t) {}
-    virtual bool GetLobbyGameServer(uint64_t, uint32_t*, uint16_t*, uint64_t*) { return false; }
-    virtual bool SetLobbyMemberLimit(uint64_t, int) { return true; }
-    virtual int GetLobbyMemberLimit(uint64_t) { return 5; }
-    virtual bool SetLobbyType(uint64_t, int) { return true; }
-    virtual bool SetLobbyJoinable(uint64_t, bool) { return true; }
-    virtual uint64_t GetLobbyOwner(uint64_t) {
+    virtual bool SetLobbyData(uint64_t steamIDLobby, const char* pchKey, const char* pchValue) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            return CallReal<bool>(20, steamIDLobby, pchKey, pchValue);
+        }
+        return true;
+    }
+
+    virtual int GetLobbyDataCount(uint64_t steamIDLobby) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            return CallReal<int>(21, steamIDLobby);
+        }
+        return 1;
+    }
+
+    virtual bool GetLobbyDataByIndex(uint64_t steamIDLobby, int iLobbyData, char* pchKey, int cchKeyBufferSize, char* pchValue, int cchValueBufferSize) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            return CallReal<bool>(22, steamIDLobby, iLobbyData, pchKey, cchKeyBufferSize, pchValue, cchValueBufferSize);
+        }
+        return false;
+    }
+
+    virtual bool DeleteLobbyData(uint64_t steamIDLobby, const char* pchKey) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            return CallReal<bool>(23, steamIDLobby, pchKey);
+        }
+        return true;
+    }
+
+    virtual const char* GetLobbyMemberData(uint64_t steamIDLobby, uint64_t steamIDUser, const char* pchKey) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            return CallReal<const char*>(24, steamIDLobby, steamIDUser, pchKey);
+        }
+        return "";
+    }
+
+    virtual void SetLobbyMemberData(uint64_t steamIDLobby, const char* pchKey, const char* pchValue) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            CallRealVoid(25, steamIDLobby, pchKey, pchValue);
+            return;
+        }
+    }
+
+    virtual bool SendLobbyChatMsg(uint64_t steamIDLobby, const void* pvMsgBody, int cubMsgBody) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            return CallReal<bool>(26, steamIDLobby, pvMsgBody, cubMsgBody);
+        }
+        return true;
+    }
+
+    virtual int GetLobbyChatEntry(uint64_t steamIDLobby, int iChatID, uint64_t* pSteamIDUser, void* pvData, int cubData, int* peChatEntryType) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            return CallReal<int>(27, steamIDLobby, iChatID, pSteamIDUser, pvData, cubData, peChatEntryType);
+        }
+        return 0;
+    }
+
+    virtual bool RequestLobbyData(uint64_t steamIDLobby) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            return CallReal<bool>(28, steamIDLobby);
+        }
+        return true;
+    }
+
+    virtual void SetLobbyGameServer(uint64_t steamIDLobby, uint32_t unGameServerIP, uint16_t unGameServerPort, uint64_t steamIDGameServer) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            CallRealVoid(29, steamIDLobby, unGameServerIP, unGameServerPort, steamIDGameServer);
+            return;
+        }
+    }
+
+    virtual bool GetLobbyGameServer(uint64_t steamIDLobby, uint32_t* punGameServerIP, uint16_t* punGameServerPort, uint64_t* psteamIDGameServer) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            return CallReal<bool>(30, steamIDLobby, punGameServerIP, punGameServerPort, psteamIDGameServer);
+        }
+        return false;
+    }
+
+    virtual bool SetLobbyMemberLimit(uint64_t steamIDLobby, int cMaxMembers) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            return CallReal<bool>(31, steamIDLobby, cMaxMembers);
+        }
+        return true;
+    }
+
+    virtual int GetLobbyMemberLimit(uint64_t steamIDLobby) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            return CallReal<int>(32, steamIDLobby);
+        }
+        return 5;
+    }
+
+    virtual bool SetLobbyType(uint64_t steamIDLobby, int eLobbyType) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            return CallReal<bool>(33, steamIDLobby, eLobbyType);
+        }
+        return true;
+    }
+
+    virtual bool SetLobbyJoinable(uint64_t steamIDLobby, bool bLobbyJoinable) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            return CallReal<bool>(34, steamIDLobby, bLobbyJoinable);
+        }
+        return true;
+    }
+
+    virtual uint64_t GetLobbyOwner(uint64_t steamIDLobby) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            return CallReal<uint64_t>(35, steamIDLobby);
+        }
         return network::LanTransport::Instance().LocalSteamId();
     }
-    virtual bool SetLobbyOwner(uint64_t, uint64_t) { return true; }
-    virtual bool SetLinkedLobby(uint64_t, uint64_t) { return true; }
+
+    virtual bool SetLobbyOwner(uint64_t steamIDLobby, uint64_t steamIDNewOwner) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            return CallReal<bool>(36, steamIDLobby, steamIDNewOwner);
+        }
+        return true;
+    }
+
+    virtual bool SetLinkedLobby(uint64_t steamIDLobby, uint64_t steamIDLobbyDependent) {
+        if (ds3scConnectionMode == 0 && m_realMatchmaking) {
+            return CallReal<bool>(37, steamIDLobby, steamIDLobbyDependent);
+        }
+        return true;
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -258,33 +469,81 @@ public:
 // ---------------------------------------------------------------------------
 class VirtualSteamNetworking005 {
 public:
+    void SetReal(void* pReal) noexcept { m_realNetworking = pReal; }
+    void* GetReal() const noexcept { return m_realNetworking; }
+
+private:
+    void* m_realNetworking = nullptr;
+
+    template <typename Ret, typename... Args>
+    Ret CallReal(size_t slot, Args... args) {
+        if (!m_realNetworking) return Ret{};
+        void** vtable = *reinterpret_cast<void***>(m_realNetworking);
+        using Fn = Ret(*)(void*, Args...);
+        auto fn = reinterpret_cast<Fn>(vtable[slot]);
+        return fn(m_realNetworking, args...);
+    }
+
+public:
     virtual bool SendP2PPacket(uint64_t steamIDRemote, const void* pubData, uint32_t cubData,
-                               int /*eP2PSendType*/, int nChannel = 0) {
+                               int eP2PSendType, int nChannel = 0) {
+        if (ds3scConnectionMode == 0 && m_realNetworking) {
+            return CallReal<bool>(0, steamIDRemote, pubData, cubData, eP2PSendType, nChannel);
+        }
         uint64_t myId = network::LanTransport::Instance().LocalSteamId();
         return network::LanTransport::Instance().SendFramed(steamIDRemote, myId, nChannel, pubData, cubData) >= 0;
     }
 
     virtual bool IsP2PPacketAvailable(uint32_t* pcubMsgSize, int nChannel = 0) {
+        if (ds3scConnectionMode == 0 && m_realNetworking) {
+            return CallReal<bool>(1, pcubMsgSize, nChannel);
+        }
         return network::LanTransport::Instance().IsPacketAvailable(nChannel, pcubMsgSize);
     }
 
     virtual bool ReadP2PPacket(void* pubDest, uint32_t cubDest, uint32_t* pcubMsgSize,
                                uint64_t* psteamIDRemote, int nChannel = 0) {
+        if (ds3scConnectionMode == 0 && m_realNetworking) {
+            return CallReal<bool>(2, pubDest, cubDest, pcubMsgSize, psteamIDRemote, nChannel);
+        }
         return network::LanTransport::Instance().ReadPacket(pubDest, cubDest, pcubMsgSize, psteamIDRemote, nChannel);
     }
 
-    virtual bool AcceptP2PSessionWithUser(uint64_t /*steamIDRemote*/) {
+    virtual bool AcceptP2PSessionWithUser(uint64_t steamIDRemote) {
+        if (ds3scConnectionMode == 0 && m_realNetworking) {
+            return CallReal<bool>(3, steamIDRemote);
+        }
         return true;
     }
 
     virtual bool CloseP2PSessionWithUser(uint64_t steamIDRemote) {
+        if (ds3scConnectionMode == 0 && m_realNetworking) {
+            return CallReal<bool>(4, steamIDRemote);
+        }
         network::LanTransport::Instance().UnregisterPeer(steamIDRemote);
         return true;
     }
 
-    virtual bool CloseP2PChannelWithUser(uint64_t, int) { return true; }
-    virtual bool GetP2PSessionState(uint64_t, void*) { return true; }
-    virtual bool AllowP2PPacketRelay(bool) { return true; }
+    virtual bool CloseP2PChannelWithUser(uint64_t steamIDRemote, int nChannel) {
+        if (ds3scConnectionMode == 0 && m_realNetworking) {
+            return CallReal<bool>(5, steamIDRemote, nChannel);
+        }
+        return true;
+    }
+
+    virtual bool GetP2PSessionState(uint64_t steamIDRemote, void* pConnectionState) {
+        if (ds3scConnectionMode == 0 && m_realNetworking) {
+            return CallReal<bool>(6, steamIDRemote, pConnectionState);
+        }
+        return true;
+    }
+
+    virtual bool AllowP2PPacketRelay(bool bAllow) {
+        if (ds3scConnectionMode == 0 && m_realNetworking) {
+            return CallReal<bool>(7, bAllow);
+        }
+        return true;
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -292,10 +551,28 @@ public:
 // ---------------------------------------------------------------------------
 class VirtualSteamNetworkingMessages002 {
 public:
+    void SetReal(void* pReal) noexcept { m_realNetworkingMessages = pReal; }
+    void* GetReal() const noexcept { return m_realNetworkingMessages; }
+
+private:
+    void* m_realNetworkingMessages = nullptr;
+
+    template <typename Ret, typename... Args>
+    Ret CallReal(size_t slot, Args... args) {
+        if (!m_realNetworkingMessages) return Ret{};
+        void** vtable = *reinterpret_cast<void***>(m_realNetworkingMessages);
+        using Fn = Ret(*)(void*, Args...);
+        auto fn = reinterpret_cast<Fn>(vtable[slot]);
+        return fn(m_realNetworkingMessages, args...);
+    }
+
+public:
     virtual int SendMessageToUser(const void* identityRemote, const void* pubData,
-                                  uint32_t cubData, int /*nSendFlags*/, int nRemoteChannel) {
+                                  uint32_t cubData, int nSendFlags, int nRemoteChannel) {
+        if (ds3scConnectionMode == 0 && m_realNetworkingMessages) {
+            return CallReal<int>(0, identityRemote, pubData, cubData, nSendFlags, nRemoteChannel);
+        }
         if (!identityRemote) return 2; // k_EResultFail
-        // SteamNetworkingIdentity: offset +8 holds 64-bit SteamID
         uint64_t targetId = *reinterpret_cast<const uint64_t*>(reinterpret_cast<const char*>(identityRemote) + 8);
         uint64_t myId = network::LanTransport::Instance().LocalSteamId();
         int res = network::LanTransport::Instance().SendFramed(targetId, myId, nRemoteChannel, pubData, cubData);
@@ -303,6 +580,9 @@ public:
     }
 
     virtual int ReceiveMessagesOnChannel(int nLocalChannel, void** ppOutMessages, int nMaxMessages) {
+        if (ds3scConnectionMode == 0 && m_realNetworkingMessages) {
+            return CallReal<int>(1, nLocalChannel, ppOutMessages, nMaxMessages);
+        }
         if (!ppOutMessages || nMaxMessages <= 0) return 0;
         uint32_t msgSize = 0;
         if (!network::LanTransport::Instance().IsPacketAvailable(nLocalChannel, &msgSize)) {
@@ -311,16 +591,37 @@ public:
         return 0;
     }
 
-    virtual bool AcceptSessionWithUser(const void*) { return true; }
+    virtual bool AcceptSessionWithUser(const void* identityRemote) {
+        if (ds3scConnectionMode == 0 && m_realNetworkingMessages) {
+            return CallReal<bool>(2, identityRemote);
+        }
+        return true;
+    }
+
     virtual bool CloseSessionWithUser(const void* identityRemote) {
+        if (ds3scConnectionMode == 0 && m_realNetworkingMessages) {
+            return CallReal<bool>(3, identityRemote);
+        }
         if (identityRemote) {
             uint64_t targetId = *reinterpret_cast<const uint64_t*>(reinterpret_cast<const char*>(identityRemote) + 8);
             network::LanTransport::Instance().UnregisterPeer(targetId);
         }
         return true;
     }
-    virtual bool CloseChannelWithUser(const void*, int) { return true; }
-    virtual int GetSessionConnectionInfo(const void*, void*, void*) { return 1; }
+
+    virtual bool CloseChannelWithUser(const void* identityRemote, int nChannel) {
+        if (ds3scConnectionMode == 0 && m_realNetworkingMessages) {
+            return CallReal<bool>(4, identityRemote, nChannel);
+        }
+        return true;
+    }
+
+    virtual int GetSessionConnectionInfo(const void* identityRemote, void* pConnectionInfo, void* pQuickStatus) {
+        if (ds3scConnectionMode == 0 && m_realNetworkingMessages) {
+            return CallReal<int>(5, identityRemote, pConnectionInfo, pQuickStatus);
+        }
+        return 1;
+    }
 };
 
 VirtualSteamMatchmaking009 g_lanMatchmaking;
@@ -335,26 +636,28 @@ GetGenericInterfaceFn g_origGetGenericInterface = nullptr;
 void** g_steamClientVTable = nullptr;
 
 void* STDMETHODCALLTYPE DetourGetISteamGenericInterface(void* thisptr, int32_t hUser, int32_t hPipe, const char* pchVersion) {
+    void* realInterface = nullptr;
+    if (g_origGetGenericInterface) {
+        realInterface = g_origGetGenericInterface(thisptr, hUser, hPipe, pchVersion);
+    }
     if (pchVersion) {
-        if (ds3scConnectionMode != 0) { // LAN Mode Active
-            if (strcmp(pchVersion, "SteamMatchMaking009") == 0) {
-                OutputDebugStringA("[ds3sc-lan-coop] Returning VirtualSteamMatchmaking009 interface\n");
-                return &g_lanMatchmaking;
-            }
-            if (strcmp(pchVersion, "SteamNetworking005") == 0) {
-                OutputDebugStringA("[ds3sc-lan-coop] Returning VirtualSteamNetworking005 interface\n");
-                return &g_lanNetworking;
-            }
-            if (strcmp(pchVersion, "SteamNetworkingMessages002") == 0) {
-                OutputDebugStringA("[ds3sc-lan-coop] Returning VirtualSteamNetworkingMessages002 interface\n");
-                return &g_lanNetworkingMessages;
-            }
+        if (strcmp(pchVersion, "SteamMatchMaking009") == 0) {
+            if (realInterface) g_lanMatchmaking.SetReal(realInterface);
+            OutputDebugStringA("[ds3sc-lan-coop] Returning unified VirtualSteamMatchmaking009 proxy\n");
+            return &g_lanMatchmaking;
+        }
+        if (strcmp(pchVersion, "SteamNetworking005") == 0) {
+            if (realInterface) g_lanNetworking.SetReal(realInterface);
+            OutputDebugStringA("[ds3sc-lan-coop] Returning unified VirtualSteamNetworking005 proxy\n");
+            return &g_lanNetworking;
+        }
+        if (strcmp(pchVersion, "SteamNetworkingMessages002") == 0) {
+            if (realInterface) g_lanNetworkingMessages.SetReal(realInterface);
+            OutputDebugStringA("[ds3sc-lan-coop] Returning unified VirtualSteamNetworkingMessages002 proxy\n");
+            return &g_lanNetworkingMessages;
         }
     }
-    if (g_origGetGenericInterface) {
-        return g_origGetGenericInterface(thisptr, hUser, hPipe, pchVersion);
-    }
-    return nullptr;
+    return realInterface;
 }
 
 using CreateInterfaceFn = void*(*)(const char*, int*);
@@ -461,13 +764,29 @@ bool LanCoopExtension::InstallSteamHooks() noexcept {
         hSteamClient = LoadLibraryA("steamclient64.dll");
     }
     if (hSteamClient) {
-        auto pCreateInterface = GetProcAddress(hSteamClient, "CreateInterface");
+        auto pCreateInterface = reinterpret_cast<CreateInterfaceFn>(GetProcAddress(hSteamClient, "CreateInterface"));
         if (pCreateInterface) {
             MH_CreateHook(reinterpret_cast<void*>(pCreateInterface),
                           reinterpret_cast<void*>(&DetourCreateInterface),
                           reinterpret_cast<void**>(&g_origCreateInterface));
             MH_EnableHook(reinterpret_cast<void*>(pCreateInterface));
             OutputDebugStringA("[ds3sc-lan-coop] Hooked steamclient64.dll CreateInterface\n");
+
+            int err = 0;
+            void* pClient = pCreateInterface("SteamClient017", &err);
+            if (pClient) {
+                void** vtable = *reinterpret_cast<void***>(pClient);
+                if (vtable && vtable[12] != reinterpret_cast<void*>(&DetourGetISteamGenericInterface)) {
+                    g_steamClientVTable = vtable;
+                    DWORD oldProtect = 0;
+                    if (VirtualProtect(&vtable[12], sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect)) {
+                        g_origGetGenericInterface = reinterpret_cast<GetGenericInterfaceFn>(vtable[12]);
+                        vtable[12] = reinterpret_cast<void*>(&DetourGetISteamGenericInterface);
+                        VirtualProtect(&vtable[12], sizeof(void*), oldProtect, &oldProtect);
+                        OutputDebugStringA("[ds3sc-lan-coop] Immediately hooked ISteamClient::GetISteamGenericInterface slot 12 on startup\n");
+                    }
+                }
+            }
         }
     }
 
@@ -551,7 +870,7 @@ void LanCoopExtension::OnTick() noexcept {
 }
 
 bool LanCoopExtension::IsActive() const noexcept {
-    return active_.load(std::memory_order_acquire);
+    return ds3scConnectionMode != 0;
 }
 
 bool LanCoopExtension::IsHost() const noexcept {
