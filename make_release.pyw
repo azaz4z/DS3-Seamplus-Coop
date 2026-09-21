@@ -136,6 +136,20 @@ MODULES = [
         description="Local Area Network multiplayer transport with automatic UDP broadcast beacon discovery and virtual matchmaking without requiring Steam.",
         default=True
     ),
+    ReleaseModule(
+        id="spectator_fix",
+        name="Spectator Stamina Bar & HUD Fix",
+        category="Native C++ Extension (HUD/Gameplay)",
+        description="Fixes stamina bar expansion, corruption and flickering during spectator mode when dying in boss fights.",
+        default=True
+    ),
+    ReleaseModule(
+        id="verbose_connections",
+        name="Verbose Connection Notifications",
+        category="Native C++ Extension (HUD/Network)",
+        description="Displays in-game announcement banners when creating co-op sessions via Steam Matchmaking or LAN Co-op.",
+        default=True
+    ),
 ]
 
 
@@ -241,7 +255,8 @@ def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_
                             selected_modules.get("fps_unlock", False) or
                             selected_modules.get("anim_fix", False) or
                             selected_modules.get("cutscene_fix", False) or
-                            selected_modules.get("lan_coop", False))
+                            selected_modules.get("lan_coop", False) or
+                            selected_modules.get("spectator_fix", False))
     greatwood_enabled = selected_modules.get("greatwood_patch", False)
     bonfire_enabled = selected_modules.get("guest_bonfires", False)
 
@@ -298,6 +313,16 @@ def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_
             build_cmd.append("--with-lan-coop")
         else:
             build_cmd.append("--without-lan-coop")
+
+        if selected_modules.get("spectator_fix", False):
+            build_cmd.append("--with-spectator-fix")
+        else:
+            build_cmd.append("--without-spectator-fix")
+
+        if selected_modules.get("verbose_connections", False):
+            build_cmd.append("--with-verbose-connections")
+        else:
+            build_cmd.append("--without-verbose-connections")
 
         build_proc = subprocess.run(build_cmd, cwd=ROOT, capture_output=True, text=True, **SUBPROCESS_FLAGS)
         if build_proc.returncode != 0:
@@ -510,17 +535,33 @@ def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_
                     zf.write(item, arcname=str(rel))
         log_fn(f"      + [ZIP] {zip_path.name} ({zip_path.stat().st_size:,} bytes)")
 
-    # Atomic deployment to release/
+    # Deployment to release/
     previous = ROOT / "build/backups" / ("release-" + datetime.now().strftime("%Y%m%d-%H%M%S-%f"))
     previous.parent.mkdir(parents=True, exist_ok=True)
     if RELEASE_DIR.exists():
-        RELEASE_DIR.rename(previous)
-    try:
-        output_dir.rename(RELEASE_DIR)
-    except OSError:
-        if previous.exists():
-            previous.rename(RELEASE_DIR)
-        raise
+        try:
+            shutil.copytree(RELEASE_DIR, previous)
+        except Exception:
+            pass
+        for item in RELEASE_DIR.iterdir():
+            if item.is_dir():
+                shutil.rmtree(item, ignore_errors=True)
+            else:
+                try:
+                    item.unlink()
+                except OSError:
+                    pass
+    else:
+        RELEASE_DIR.mkdir(parents=True, exist_ok=True)
+
+    for item in output_dir.iterdir():
+        dest = RELEASE_DIR / item.name
+        if item.is_dir():
+            shutil.copytree(item, dest)
+        else:
+            shutil.copy2(item, dest)
+
+    shutil.rmtree(output_dir, ignore_errors=True)
 
     for old_exe in [ROOT / "TheAshenLink.exe", ROOT / "ds3sc_launcher.exe"]:
         if old_exe.is_file():

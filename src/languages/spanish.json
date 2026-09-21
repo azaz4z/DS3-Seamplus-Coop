@@ -37,6 +37,11 @@
 	
 	"MODMSG_JOININGINPROGRESS": "Uniendose a otro mundo como Errante",	
 	"MODMSG_INVADINGINPROGRESS": "Invadiendo otro mundo como Rebelde",
+	"MODMSG_HOSTING_STEAM": "Creando sesión vía Steam...",
+	"MODMSG_HOSTING_LAN": "Creando sesión vía LAN...",
+	"MODMSG_HOSTING_SUCCESS_STEAM": "Sesión creada vía Steam",
+	"MODMSG_HOSTING_SUCCESS_LAN": "Sesión creada vía LAN",
+	"MODMSG_HOSTING_FAILED": "Error al crear la sesión",
 	"MODMSG_JOINBLOCKED": "Conexión fallida: Has sido bloqueado por el anfitrión de la sesión",
 	"MODMSG_JOINFAILED": "Conexión fallida: No hay suficientes espacios para jugadores libres",
 	"MODMSG_BLOCKEDJOIN": "Conexión fallida: Has bloqueado al anfitrión de la sesión",

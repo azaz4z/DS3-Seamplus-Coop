@@ -46,6 +46,14 @@
 #include "lan_coop/lan_coop_extension.h"
 #endif
 
+#if defined(DS3SC_FEATURE_SPECTATOR_FIX) && DS3SC_FEATURE_SPECTATOR_FIX
+#include "spectator_fix/spectator_fix_extension.h"
+#endif
+
+#if defined(DS3SC_FEATURE_VERBOSE_CONNECTIONS) && DS3SC_FEATURE_VERBOSE_CONNECTIONS
+#include "verbose_connections/verbose_connections_extension.h"
+#endif
+
 
 
 
@@ -101,6 +109,16 @@ DWORD WINAPI ExtensionWorker(void*) {
 #if defined(DS3SC_FEATURE_LAN_COOP) && DS3SC_FEATURE_LAN_COOP
     ds3sc::extensions::ExtensionManager::Instance().Register(
         ds3sc::extensions::CreateLanCoopExtension());
+#endif
+
+#if defined(DS3SC_FEATURE_SPECTATOR_FIX) && DS3SC_FEATURE_SPECTATOR_FIX
+    ds3sc::extensions::ExtensionManager::Instance().Register(
+        ds3sc::extensions::CreateSpectatorFixExtension());
+#endif
+
+#if defined(DS3SC_FEATURE_VERBOSE_CONNECTIONS) && DS3SC_FEATURE_VERBOSE_CONNECTIONS
+    ds3sc::extensions::ExtensionManager::Instance().Register(
+        ds3sc::extensions::CreateVerboseConnectionsExtension());
 #endif
 
 

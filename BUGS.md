@@ -47,6 +47,16 @@ This document tracks identified bugs, multiplayer synchronization issues, and en
 
 ---
 
+## 👁️ HUD & Spectator Mode Issues
+
+### 1. Spectator Stamina Bar Expansion & Flickering
+* **Category:** HUD / Spectator Mode
+* **Status:** ✅ **Resolved** (Fixed by `spectator_fix` extension)
+* **Resolved Anomaly:**
+  * **Stamina Overflow and Visual Glitch on Death:** Dying during a boss fight with negative or zero stamina while allies were alive caused the Scaleform HUD to evaluate negative numbers or divide by zero ($\text{MaxSp} \le 0$), stretching the stamina gauge across the monitor and flickering erratically at 60 FPS. The `spectator_fix` extension clamps dead and spectated stamina to safe non-negative values and restores natural scaling immediately upon revive.
+
+---
+
 ## ⚔️ Combat & Networking Issues
 
 ### 1. Hit Synchronization

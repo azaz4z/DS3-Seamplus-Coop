@@ -55,3 +55,4 @@ This document tracks planned improvements and development priorities for **The A
 - [x] **Ally Outlines & Silhouettes:** Direct3D 11 occluded silhouette shader pass behind walls.
 - [x] **Native Scaleform Title Menu:** Custom menu button on the title screen with game-matching button hitbox.
 - [x] **Standalone Release Manager (`make_release.pyw`):** Standalone GUI builder with silent console launch and one-click packaging.
+- [x] **Spectator Stamina Bar & HUD Fix (`spectator_fix`):** Eliminates stamina bar stretching, corruption and violent flickering while spectating co-op teammates after dying in boss fights.

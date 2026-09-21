@@ -10,5 +10,7 @@
   "fps_unlock": true,
   "anim_fix": true,
   "cutscene_fix": true,
-  "lan_coop": true
+  "lan_coop": true,
+  "spectator_fix": true,
+  "verbose_connections": true
 }

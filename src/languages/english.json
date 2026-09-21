@@ -37,6 +37,11 @@
 	
 	"MODMSG_JOININGINPROGRESS": "Joining another world as a Wanderer",	
 	"MODMSG_INVADINGINPROGRESS": "Invading another world as a Malcontent",
+	"MODMSG_HOSTING_STEAM": "Creating session via Steam...",
+	"MODMSG_HOSTING_LAN": "Creating session via LAN...",
+	"MODMSG_HOSTING_SUCCESS_STEAM": "Session created via Steam",
+	"MODMSG_HOSTING_SUCCESS_LAN": "Session created via LAN",
+	"MODMSG_HOSTING_FAILED": "Failed to create session",
 	"MODMSG_JOINBLOCKED": "Joining failed: You have been blocked by the host of the session",
 	"MODMSG_JOINFAILED": "Joining failed: Not enough open slots player slots",
 	"MODMSG_BLOCKEDJOIN": "Joining failed: You have blocked the host of the session",
