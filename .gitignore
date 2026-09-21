@@ -19,8 +19,7 @@
 /analysis/
 
 # GitHub screenshots & media assets
-/github/*
-!/github/*.JPG
+github/
 
 # Python cache
 __pycache__/
