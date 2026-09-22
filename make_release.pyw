@@ -256,7 +256,8 @@ def build_release_pipeline(selected_modules: dict, release_id: str = None, skip_
                             selected_modules.get("anim_fix", False) or
                             selected_modules.get("cutscene_fix", False) or
                             selected_modules.get("lan_coop", False) or
-                            selected_modules.get("spectator_fix", False))
+                            selected_modules.get("spectator_fix", False) or
+                            selected_modules.get("verbose_connections", False))
     greatwood_enabled = selected_modules.get("greatwood_patch", False)
     bonfire_enabled = selected_modules.get("guest_bonfires", False)
 

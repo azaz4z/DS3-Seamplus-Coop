@@ -143,6 +143,8 @@ bool Matches(const void* module, size_t rva, const unsigned char* prefix, size_t
     } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 
+#include "native_banner_timing.inl"
+
 void RemoveNativeHooks() noexcept {
     g_ready.store(false, std::memory_order_release);
     for (auto& target : g_ownedHooks) {
@@ -245,8 +247,16 @@ void VerboseConnectionsExtension::GetStats(uint32_t& host, uint32_t& join) const
     host = hostNotifications_.load();
     join = 0; // Preserve the original export ABI; this is not a delivery count.
 }
-bool VerboseConnectionsExtension::InstallHooks() noexcept { return InstallNativeHooks(GetModuleHandleW(L"ds3sc.dll")); }
-void VerboseConnectionsExtension::RemoveHooks() noexcept { RemoveNativeHooks(); }
+bool VerboseConnectionsExtension::InstallHooks() noexcept {
+    if (!InstallBannerTimingHooks(GetModuleHandleW(L"DarkSoulsIII.exe"))) return false;
+    if (InstallNativeHooks(GetModuleHandleW(L"ds3sc.dll"))) return true;
+    RemoveBannerTimingHooks();
+    return false;
+}
+void VerboseConnectionsExtension::RemoveHooks() noexcept {
+    RemoveNativeHooks();
+    RemoveBannerTimingHooks();
+}
 bool VerboseConnectionsExtension::Initialize() noexcept {
     if (initialized_.load()) return true;
     LoadSettings();

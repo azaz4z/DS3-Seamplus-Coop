@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--native-dll", type=Path)
+    parser.add_argument("--game-exe", type=Path)
     args = parser.parse_args()
     compiler = setup_msvc_environment()
     output = ROOT / "build/verbose-tests"
@@ -29,5 +30,6 @@ if __name__ == "__main__":
                         str(ROOT / "tests/verbose_connections_hooks_test.cpp"),
                         "buffer.obj", "hook.obj", "trampoline.obj", "hde64.obj",
                         "/Fe:verbose_connections_hooks_test.exe"], cwd=output, check=True)
+        game_exe = args.game_exe or args.native_dll.resolve().parent.parent / "DarkSoulsIII.exe"
         subprocess.run([str(output / "verbose_connections_hooks_test.exe"),
-                        str(args.native_dll.resolve())], cwd=output, check=True, timeout=15)
+                        str(args.native_dll.resolve()), str(game_exe.resolve())], cwd=output, check=True, timeout=15)
